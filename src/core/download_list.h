@@ -38,6 +38,7 @@ struct DownloadRecord {
     std::string videoFormat;     // VideoFormat::serialize(): "best", "1080", "mp3"...
     bool subtitles = false;
     std::string errorText;       // mensagem da ferramenta quando o erro é ToolFailed
+    bool organize = false;       // foi para a pasta padrão: as regras escolhem a pasta final ao concluir
     int errorCode = 0;       // DownloadError salvo como número
     unsigned long errorDetail = 0;
 };

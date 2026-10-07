@@ -66,6 +66,47 @@ void DownloadManager::load() {
     advanceQueue();
 }
 
+void DownloadManager::setRules(std::vector<dm::Rule> rules, bool enabled, std::wstring baseFolder) {
+    rules_ = std::move(rules);
+    rulesEnabled_ = enabled;
+    baseFolder_ = std::move(baseFolder);
+}
+
+void DownloadManager::setOrganize(uint64_t id, bool organize) {
+    if (DownloadItem* item = find(id)) {
+        item->record.organize = organize;
+        save();
+    }
+}
+
+void DownloadManager::organizeIfNeeded(DownloadItem& item) {
+    if (!item.record.organize || !rulesEnabled_ || item.record.filePath.empty()) return;
+    item.record.organize = false;  // uma vez só
+    const std::wstring path = dm::toWide(item.record.filePath);
+    const dm::DownloadFacts facts{item.record.url, dm::toUtf8(dm::fileNameOf(path)), item.record.totalSize,
+                                  item.record.isVideo};
+    const dm::Rule* rule = dm::matchRule(rules_, facts);
+    if (!rule) return;
+    item.organizing = true;
+    organizer_.submit({item.record.id, path, baseFolder_, *rule});
+}
+
+bool DownloadManager::collectOrganized() {
+    bool changed = false;
+    for (const auto& result : organizer_.takeResults()) {
+        DownloadItem* item = find(result.id);
+        if (!item) continue;
+        item->organizing = false;
+        item->record.filePath = dm::toUtf8(result.path);
+        item->record.directory = dm::toUtf8(dm::directoryOf(result.path));
+        changed = true;
+        if (onOrganized && (result.openFile || result.openFolder)) {
+            onOrganized(result.path, result.openFile, result.openFolder);
+        }
+    }
+    return changed;
+}
+
 void DownloadManager::setMaxRunning(int count) {
     maxRunning_ = std::max(count, 1);
 }
@@ -196,7 +237,9 @@ uint64_t DownloadManager::addCompleted(const std::string& url, const std::wstrin
     item->record.downloaded = size;
     item->record.addedAt = unixNow();
     item->record.finishedAt = item->record.addedAt;
+    item->record.organize = true;  // o que o navegador baixou sozinho também é organizado
     const uint64_t id = item->record.id;
+    organizeIfNeeded(*item);
     items_.push_back(std::move(item));
     save();
     return id;
@@ -275,6 +318,9 @@ void DownloadManager::shutdown() {
         // Volta na próxima vez (como fila: respeita vagas e horário).
         if (wasActive && !item->completed()) item->record.state = dm::RecordState::Queued;
     }
+    // Arquivos sendo movidos/extraídos: espera para gravar o caminho final.
+    organizer_.drain();
+    collectOrganized();
     if (!items_.empty()) save();
 }
 
@@ -299,6 +345,7 @@ bool DownloadManager::tick() {
                 record.state = dm::RecordState::Completed;
                 record.finishedAt = unixNow();
                 record.errorCode = 0;
+                organizeIfNeeded(*item);
                 if (onCompleted) onCompleted(*item);
                 break;
             case dm::DownloadStatus::Failed:
@@ -327,6 +374,7 @@ bool DownloadManager::tick() {
         remove(record.id, true);
         if (onWebPage) onWebPage(record);
     }
+    if (collectOrganized()) changed = true;
     if (advanceQueue()) changed = true;
     if (changed || ++ticksSinceSave_ >= kSaveEveryTicks) save();
     return changed;

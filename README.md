@@ -21,6 +21,8 @@ A extensão manda para o app os downloads que você inicia no navegador e organi
 dm-cli <link> [pasta] [--conexoes N] [--nome arquivo]
 ```
 
+Regras: `dm-cli --organizar <arquivo> <pasta-base> [--extrair]` aplica as regras padrão a um arquivo (usado no CI).
+
 Vídeos (yt-dlp): `dm-cli --video <link> [pasta] [--qualidade best|1080|720|mp3|audio]`. `dm-cli --preparar-videos <pasta-de-dados>` baixa o yt-dlp e o ffmpeg (o app faz isso sozinho na primeira vez).
 
 Ctrl+C pausa e salva o progresso; rodar o mesmo comando de novo continua de onde parou (também depois de travamento ou reinício do PC).
@@ -45,8 +47,8 @@ cmake --build build-mingw
 
 ```
 src/main.cpp            entrada do app, instância única, --tray
-src/app/                lista de downloads (DownloadManager) e integrações com o Windows
-src/ui/                 janela principal, listas, diálogos, Configurações, bandeja (Win32 puro)
+src/app/                lista de downloads (DownloadManager), organizador das regras e integrações com o Windows
+src/ui/                 janela principal, listas, diálogos, Regras, Configurações, bandeja (Win32 puro)
 src/cli/                dm-cli
 src/host/               dm-host.exe: ponte com a extensão (Native Messaging)
 extension/              extensão do navegador (WebExtension MV3)

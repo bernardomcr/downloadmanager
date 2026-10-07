@@ -14,5 +14,6 @@
 - Contrato app ↔ `dm-host.exe` em `src/app/ipc.h` (WM_COPYDATA); mensagens validadas em `src/core/browser_request.cpp` (vêm da internet: só http/https, sem quebras de linha em cabeçalhos, sem `..` em caminhos).
 - Teste real da extensão: Chromium do Playwright com `--load-extension` sob Xvfb; com `--user-data-dir`, o manifesto da ponte vai em `<perfil>/NativeMessagingHosts/` (script que chama `wine dm-host.exe`).
 - Vídeos: `src/core/video.cpp` monta os argumentos do yt-dlp e lê a saída (marcadores DMPROG/DMFILE/DMPOST); `src/engine/video_task.cpp` roda o yt-dlp num Job Object (pausar = matar a árvore de processos). `DownloadTask` e `VideoTask` implementam `dm::Task`. Ferramentas em `app/video_tools.cpp`; a extração do ffmpeg usa o `tar.exe` do Windows (não existe no Wine: teste no Wine extraindo à mão com `bsdtar`; o CI testa de verdade).
+- Regras: casamento e formato do `rules.ini` em `src/core/rules.cpp` (testado); `app/organizer.cpp` move/extrai numa thread ao concluir; só organiza downloads marcados com `organize` (foram para a pasta padrão, ou adotados do navegador). Extração com o `tar.exe` do Windows: no Wine falha e o compactado fica (o CI testa com `dm-cli --organizar`).
 - Links colados no Adicionar que respondem `text/html` viram erro `WebPage` e o app abre a análise de vídeo (não baixar HTML por engano).
 - Mensagens de commit em português.

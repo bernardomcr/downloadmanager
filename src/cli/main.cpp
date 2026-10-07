@@ -2,6 +2,7 @@
 //   dm-cli <link> [pasta] [--conexoes N] [--nome arquivo] [--limite KB/s]
 //   dm-cli --video <link> [pasta] [--qualidade best|1080|720|mp3|audio]   (vídeo pelo yt-dlp)
 //   dm-cli --preparar-videos <pasta-de-dados>   (baixa yt-dlp e ffmpeg; usado no CI)
+//   dm-cli --organizar <arquivo> <pasta-base> [--extrair]   (aplica as regras padrão; usado no CI)
 // Ctrl+C pausa e salva o progresso; rodar o mesmo comando de novo continua de onde parou.
 #include <windows.h>
 
@@ -10,13 +11,16 @@
 #include <cwchar>
 #include <string>
 
-#include "core/format.h"
+#include "app/organizer.h"
 #include "app/video_tools.h"
+#include "core/format.h"
+#include "core/rules.h"
 #include "core/video.h"
 #include "engine/download_task.h"
 #include "engine/video_task.h"
 #include "i18n/errors.h"
 #include "i18n/strings.h"
+#include "util/file_io.h"
 #include "util/unicode.h"
 
 using i18n::Str;
@@ -123,12 +127,35 @@ int downloadVideo(const std::string& url, const std::wstring& directory, const s
     return 0;
 }
 
+// Aplica as regras padrão a um arquivo, como o app faz ao concluir. --extrair liga "extrair e apagar o compactado".
+int organize(const std::wstring& file, const std::wstring& baseFolder, bool extract) {
+    const auto rules = dm::defaultRules(i18n::currentLanguage() == i18n::Language::Portuguese);
+    const dm::DownloadFacts facts{{}, dm::toUtf8(dm::fileNameOf(file)), -1, false};
+    const dm::Rule* match = dm::matchRule(rules, facts);
+    if (!match) {
+        print(file + L"\n");
+        return 0;
+    }
+    dm::Rule rule = *match;
+    rule.extract = rule.deleteArchive = extract;
+    app::Organizer organizer;
+    organizer.submit({1, file, baseFolder, rule});
+    organizer.drain();
+    const auto results = organizer.takeResults();
+    if (results.empty()) return 1;
+    print(results.front().path + L"\n");
+    return 0;
+}
+
 int wmain(int argc, wchar_t** argv) {
     SetConsoleOutputCP(CP_UTF8);
     i18n::setLanguage(i18n::systemLanguage());
     const char decimal = i18n::decimalSeparator();
 
     if (argc >= 3 && std::wstring(argv[1]) == L"--preparar-videos") return prepareVideoTools(argv[2]);
+    if (argc >= 4 && std::wstring(argv[1]) == L"--organizar") {
+        return organize(argv[2], argv[3], argc >= 5 && std::wstring(argv[4]) == L"--extrair");
+    }
     if (argc >= 3 && std::wstring(argv[1]) == L"--video") {
         std::string quality = "best";
         std::wstring directory = L".";

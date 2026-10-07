@@ -164,7 +164,7 @@ std::wstring DownloadListView::cellText(const app::DownloadItem& item, int colum
 
     if (mode_ == Mode::Completed) {
         if (column == 2) return dm::directoryOf(dm::toWide(record.filePath));
-        if (column == 3) return app::formatDateTime(record.finishedAt);
+        if (column == 3) return item.organizing ? tr(Str::StatusOrganizing) : app::formatDateTime(record.finishedAt);
         return {};
     }
 

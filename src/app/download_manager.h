@@ -6,7 +6,9 @@
 #include <string>
 #include <vector>
 
+#include "app/organizer.h"
 #include "core/download_list.h"
+#include "core/rules.h"
 #include "core/video.h"
 #include "engine/download_task.h"
 #include "engine/task.h"
@@ -23,6 +25,7 @@ struct DownloadItem {
     bool forced = false;               // "Começar agora": ignora o limite da fila e o agendador
     bool pausedBySchedule = false;     // pausado pelo agendador: volta para a fila, não para "Pausado"
     bool rejectWebPages = false;       // link colado à mão: se for uma página, vira análise de vídeo
+    bool organizing = false;           // concluído, sendo movido/extraído pela regra
 
     bool running() const {
         return task && (live.status == dm::DownloadStatus::Connecting ||
@@ -57,6 +60,10 @@ public:
                       const dm::VideoFormat& format, bool subtitles,
                       const std::vector<std::pair<std::string, std::string>>& headers = {},
                       const std::string& userAgent = {});
+    // Regras de organização (aplicadas ao concluir quem foi para a pasta padrão).
+    void setRules(std::vector<dm::Rule> rules, bool enabled, std::wstring baseFolder);
+    // Marca se um download novo deve ser organizado pelas regras (foi para a pasta padrão).
+    void setOrganize(uint64_t id, bool organize);
     // Sem as ferramentas prontas, vídeos esperam na fila.
     void setVideoTools(VideoTools* tools) { videoTools_ = tools; }
 
@@ -88,6 +95,8 @@ public:
     const std::vector<std::unique_ptr<DownloadItem>>& items() const { return items_; }
 
     std::function<void(const DownloadItem&)> onCompleted;
+    // A regra pediu para abrir o arquivo ou a pasta depois de organizar.
+    std::function<void(const std::wstring& path, bool openFile, bool openFolder)> onOrganized;
     // Um link colado à mão era uma página web: o item é removido e a interface oferece a análise de vídeo.
     std::function<void(const dm::DownloadRecord&)> onWebPage;
 
@@ -95,6 +104,8 @@ private:
     void startTask(DownloadItem& item);
     void stopTask(DownloadItem& item);
     void enqueue(DownloadItem& item);
+    void organizeIfNeeded(DownloadItem& item);
+    bool collectOrganized();
     // Aplica o agendador e começa downloads da fila enquanto houver vaga. true se algo mudou.
     bool advanceQueue();
 
@@ -107,6 +118,10 @@ private:
     int scheduleStart_ = 0;
     int scheduleEnd_ = 0;
     VideoTools* videoTools_ = nullptr;
+    std::vector<dm::Rule> rules_;
+    bool rulesEnabled_ = true;
+    std::wstring baseFolder_;
+    Organizer organizer_;
     std::shared_ptr<dm::RateLimiter> globalLimiter_ = std::make_shared<dm::RateLimiter>();
 };
 

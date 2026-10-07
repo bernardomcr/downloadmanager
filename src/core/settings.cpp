@@ -21,6 +21,7 @@ std::string serializeSettings(const Settings& settings) {
     out << "keep-awake=" << (settings.keepAwake ? 1 : 0) << '\n';
     out << "browser-ask=" << (settings.askForBrowserDownloads ? 1 : 0) << '\n';
     out << "browser-adopt=" << (settings.adoptBrowserDownloads ? 1 : 0) << '\n';
+    out << "rules=" << (settings.rulesEnabled ? 1 : 0) << '\n';
     out << "max-downloads=" << settings.maxDownloads << '\n';
     out << "speed-limit-kbps=" << settings.speedLimitKBps << '\n';
     out << "schedule=" << (settings.scheduleEnabled ? 1 : 0) << '\n';
@@ -62,6 +63,8 @@ Settings parseSettings(const std::string& text) {
             settings.askForBrowserDownloads = value != "0";
         } else if (key == "browser-adopt") {
             settings.adoptBrowserDownloads = value != "0";
+        } else if (key == "rules") {
+            settings.rulesEnabled = value != "0";
         } else if (key == "max-downloads") {
             std::istringstream number(value);
             int count = 0;

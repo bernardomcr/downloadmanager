@@ -16,6 +16,7 @@
 #include "core/json.h"
 #include "core/rate_limiter.h"
 #include "core/resume_state.h"
+#include "core/rules.h"
 #include "core/segments.h"
 #include "core/settings.h"
 #include "core/video.h"
@@ -190,6 +191,7 @@ void testDownloadList() {
     second.videoFormat = "720";
     second.subtitles = true;
     second.errorText = "Video unavailable";
+    second.organize = true;
     second.state = dm::RecordState::Queued;
 
     const auto parsed = dm::parseDownloadList(dm::serializeDownloadList({record, second}));
@@ -201,7 +203,7 @@ void testDownloadList() {
     CHECK(parsed[1].state == dm::RecordState::Queued && parsed[0].speedLimit == 51200);
     CHECK(parsed[0].protectedHeaders == "QUJD" && parsed[0].userAgent == "Mozilla/5.0 (X)");
     CHECK(!parsed[0].isVideo && parsed[1].isVideo && parsed[1].videoFormat == "720" && parsed[1].subtitles);
-    CHECK(parsed[1].errorText == "Video unavailable");
+    CHECK(parsed[1].errorText == "Video unavailable" && parsed[1].organize && !parsed[0].organize);
 
     // Item sem URL é descartado; o resto continua.
     CHECK(dm::parseDownloadList("dmlist 1\n[download]\nid 1\n[download]\nid 2\nurl x\n").size() == 1);
@@ -220,6 +222,7 @@ void testSettings() {
     settings.scheduleStart = 23 * 60;
     settings.scheduleEnd = 6 * 60 + 30;
     settings.whenDone = dm::WhenDone::Shutdown;
+    settings.rulesEnabled = false;
     const auto parsed = dm::parseSettings(dm::serializeSettings(settings));
     CHECK(parsed.downloadFolder == "D:\\Baixados" && parsed.connections == 16);
     CHECK(parsed.language == dm::LanguageSetting::English && !parsed.closeToTray);
@@ -227,6 +230,7 @@ void testSettings() {
     CHECK(parsed.maxDownloads == 5 && parsed.speedLimitKBps == 300 && parsed.scheduleEnabled);
     CHECK(parsed.scheduleStart == 23 * 60 && parsed.scheduleEnd == 6 * 60 + 30);
     CHECK(parsed.whenDone == dm::WhenDone::Nothing);  // não é salvo
+    CHECK(!parsed.rulesEnabled && dm::parseSettings("").rulesEnabled);
     CHECK(dm::parseSettings("connections=500\n").connections == 32);
     CHECK(dm::parseSettings("").connections == 8);
 }
@@ -430,6 +434,52 @@ void testCommandLine() {
           "\"C:\\x y\\yt-dlp.exe\" -o %(title)s.%(ext)s -- https://a/b?c=1&d=2");
 }
 
+void testRules() {
+    auto rules = dm::defaultRules(true);
+    auto folderFor = [&](const dm::DownloadFacts& facts) {
+        const dm::Rule* rule = dm::matchRule(rules, facts);
+        return rule ? rule->folder : std::string("(nenhuma)");
+    };
+    CHECK(folderFor({"https://a.com/x", "Setup.EXE", 10, false}) == "Programas");
+    CHECK(folderFor({"https://a.com/x", "fotos.tar.gz", 10, false}) == "Compactados");
+    CHECK(folderFor({"https://a.com/x", "relatório.pdf", 10, false}) == "Documentos");
+    CHECK(folderFor({"https://youtube.com/x", "clipe.webm", 10, true}) == "Vídeos");  // vídeo vem antes
+    CHECK(folderFor({"https://a.com/x", "filme.mkv", 10, false}) == "Vídeos");
+    CHECK(folderFor({"https://a.com/x", "LEIAME", 10, false}) == "(nenhuma)");
+    CHECK(dm::defaultRules(false)[1].folder == "Compressed");
+
+    dm::Rule site;
+    site.name = "Faculdade";
+    site.sites = dm::splitList("moodle.ufrj.br");
+    site.nameContains = "AULA";
+    site.minSize = 1000;
+    site.folder = "D:\\Faculdade";
+    site.extract = true;
+    rules.insert(rules.begin(), site);
+    CHECK(folderFor({"https://www.moodle.ufrj.br/f", "aula3.zip", 5000, false}) == "D:\\Faculdade");
+    CHECK(folderFor({"https://moodle.ufrj.br.evil.com/f", "aula3.zip", 5000, false}) == "Compactados");
+    CHECK(folderFor({"https://moodle.ufrj.br/f", "aula3.zip", 10, false}) == "Compactados");  // pequeno demais
+    CHECK(folderFor({"https://moodle.ufrj.br/f", "prova.zip", 5000, false}) == "Compactados");
+    rules[0].enabled = false;
+    CHECK(folderFor({"https://moodle.ufrj.br/f", "aula3.zip", 5000, false}) == "Compactados");
+    rules[0].enabled = true;
+
+    const auto parsed = dm::parseRules(dm::serializeRules(rules));
+    CHECK(parsed.size() == rules.size());
+    CHECK(parsed[0].name == "Faculdade" && parsed[0].sites == site.sites && parsed[0].nameContains == "AULA");
+    CHECK(parsed[0].minSize == 1000 && parsed[0].extract && !parsed[0].deleteArchive);
+    CHECK(parsed[1].kind == dm::Rule::Kind::Video && parsed[2].extensions == rules[2].extensions);
+    CHECK(dm::parseRules("lixo").empty());
+
+    CHECK(dm::splitList(" .ZIP, rar;7z  zip") == std::vector<std::string>({"zip", "rar", "7z"}));
+    CHECK(dm::joinList({"zip", "rar"}) == "zip, rar");
+    CHECK(dm::fileExtension("a/b.c/arquivo") == "" && dm::fileExtension(".bashrc") == "");
+    CHECK(dm::resolveRuleFolder("Compactados", "C:\\Downloads") == "C:\\Downloads\\Compactados");
+    CHECK(dm::resolveRuleFolder("Compactados", "C:\\Downloads\\") == "C:\\Downloads\\Compactados");
+    CHECK(dm::resolveRuleFolder("E:\\Jogos", "C:\\Downloads") == "E:\\Jogos");
+    CHECK(dm::resolveRuleFolder("\\\\nas\\x", "C:\\Downloads") == "\\\\nas\\x");
+}
+
 }  // namespace
 
 int main() {
@@ -449,6 +499,7 @@ int main() {
     testBase64();
     testVideo();
     testCommandLine();
+    testRules();
 
     if (g_failures == 0) std::printf("Todos os testes passaram.\n");
     return g_failures == 0 ? 0 : 1;

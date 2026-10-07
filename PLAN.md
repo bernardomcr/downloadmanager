@@ -58,14 +58,17 @@ app.exe (um único processo)
    - janela anônima fica com o navegador (privacidade).
 5. **Vídeos** ✅ — yt-dlp + ffmpeg baixados pelo próprio app na primeira vez (~200 MB, em `%LOCALAPPDATA%\DownloadManager\tools`), yt-dlp atualizado a cada 7 dias. Link de site conhecido (YouTube, Vimeo, X, Instagram, TikTok...) ou qualquer link colado que abra uma página → janela de vídeo: título, duração, qualidade (melhor / até Np / MP3 / áudio original), legendas pt/en, playlist com caixas de seleção. Na lista: pausar/continuar (o yt-dlp aproveita o que já baixou), fila, limite. Streams HLS/DASH com 8 pedaços em paralelo. Extensão: "Baixar o vídeo desta página" (leva os cookies: evita o "confirme que não é um robô" do YouTube) e streams no popup. DRM: detectado e recusado.
 6. ~~**Torrent**~~ — cancelado (decisão do usuário).
-7. **Regras automáticas** — por extensão/site/tamanho: pasta destino, extrair, abrir, rodar comando.
+7. **Regras automáticas** ✅ — aba Regras (ver abaixo): ao concluir, o arquivo vai para a subpasta da primeira regra que servir; extrair (tar do Windows), apagar o compactado, abrir arquivo/pasta. Vale também para o que o navegador baixou sozinho (adotado).
 8. **Distribuição** — instalador, auto-update, assinatura.
 
-## Aba Regras (proposta)
-Lista de regras "SE → ENTÃO", avaliadas na ordem, a primeira que casa vence.
-- **SE**: extensão do arquivo, site de origem (domínio), tamanho, tipo (arquivo/vídeo), palavra no nome.
-- **ENTÃO**: salvar na pasta X, renomear com padrão, limite de velocidade/conexões, iniciar agora ou agendar, depois de concluir: extrair, abrir, abrir pasta, apagar o compactado, rodar comando.
-- Vem com regras padrão (equivalente às categorias do IDM): Compactados, Documentos, Músicas, Programas, Vídeos.
+## Aba Regras
+Lista de regras "SE → ENTÃO", avaliadas na ordem, a primeira que casa vence. Uma caixa liga/desliga tudo; cada regra tem a sua.
+- **SE**: tipo (qualquer / arquivo / vídeo de site), extensões, sites (domínio e subdomínios), palavra no nome, maior/menor que N MB.
+- **ENTÃO**: pasta (nome simples = dentro da pasta padrão; ou caminho completo), extrair compactados (pasta com o nome do arquivo), apagar o compactado depois de extrair, abrir o arquivo, abrir a pasta.
+- Aplicada ao **concluir**, em segundo plano (Concluídos mostra "Organizando…"). Só organiza o que foi para a pasta padrão: se a pessoa escolheu outra pasta no Adicionar, a escolha dela vale.
+- Regras padrão (categorias do IDM): Vídeos (de site), Compactados, Programas, Imagens de disco, Documentos, Músicas, Vídeos (por extensão), Imagens. "Restaurar padrão" volta a elas.
+- Salvas em `%LOCALAPPDATA%\DownloadManager\rules.ini`.
+- Ficaram de fora por enquanto (dá para adicionar se fizer falta): renomear com padrão, limite de velocidade/conexões por regra, rodar comando.
 
 ## Cursos (estrutura do katomart, otimizada)
 Referência: katomart (Python, 61 adaptadores de plataforma). Reescrita própria — o repo não tem arquivo de licença, então nada é copiado literalmente.

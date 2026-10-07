@@ -27,6 +27,7 @@ add_library(dm_core STATIC
     src/core/json.cpp
     src/core/rate_limiter.cpp
     src/core/resume_state.cpp
+    src/core/rules.cpp
     src/core/segments.cpp
     src/core/settings.cpp
     src/core/video.cpp
@@ -64,6 +65,7 @@ if(WIN32)
     add_library(dm_app STATIC
         src/app/browser_integration.cpp
         src/app/download_manager.cpp
+        src/app/organizer.cpp
         src/app/system.cpp
         src/app/video_tools.cpp
     )
@@ -74,6 +76,7 @@ if(WIN32)
         src/ui/dialogs.cpp
         src/ui/download_list_view.cpp
         src/ui/main_window.cpp
+        src/ui/rules_page.cpp
         src/ui/settings_page.cpp
         src/ui/tray_icon.cpp
         src/ui/video_dialog.cpp

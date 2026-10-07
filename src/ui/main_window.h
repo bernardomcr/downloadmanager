@@ -13,6 +13,7 @@
 #include "core/browser_request.h"
 #include "core/settings.h"
 #include "ui/download_list_view.h"
+#include "ui/rules_page.h"
 #include "ui/settings_page.h"
 #include "ui/tray_icon.h"
 
@@ -36,6 +37,9 @@ private:
 
     void loadSettings();
     void saveSettings();
+    void loadRules();
+    void saveRules();
+    void applyRules();
     void onSettingsChanged(const dm::Settings& settings);
     void applyQueueSettings();
     // "Quando todos os downloads terminarem": contagem regressiva e então suspende/desliga.
@@ -67,6 +71,8 @@ private:
     void showWindowFromTray();
     void exitApp();
     std::wstring downloadFolder() const;
+    // Download novo: marca para as regras organizarem se foi para a pasta padrão.
+    void markOrganize(uint64_t id, const std::wstring& folder);
 
     int scale(int value) const { return MulDiv(value, static_cast<int>(dpi_), 96); }
 
@@ -74,7 +80,6 @@ private:
     HWND hwnd_ = nullptr;
     HWND tabs_ = nullptr;
     HWND addButton_ = nullptr;
-    HWND rulesList_ = nullptr;
     std::array<HWND, kPageCount> pages_{};
     HFONT font_ = nullptr;
     HBRUSH background_ = nullptr;
@@ -87,14 +92,17 @@ private:
     std::array<size_t, 2> tabCounts_{static_cast<size_t>(-1), static_cast<size_t>(-1)};
 
     std::wstring settingsPath_;
+    std::wstring rulesPath_;
+    std::vector<dm::Rule> rules_;
     dm::Settings settings_;
     std::unique_ptr<app::DownloadManager> manager_;
     std::unique_ptr<app::VideoTools> videoTools_;
     DownloadListView downloadsList_;
     DownloadListView completedList_;
     SettingsPage settingsPage_;
+    RulesPage rulesPage_;
     TrayIcon tray_;
-    std::wstring lastCompletedPath_;
+    uint64_t lastCompletedId_ = 0;  // clique na notificação abre a pasta dele (o caminho muda se a regra mover)
     bool sawWork_ = false;      // houve download desde que a ação de "quando terminar" foi escolhida
     bool keepingAwake_ = false;
     std::vector<dm::BrowserRequest> pendingBrowserRequests_;

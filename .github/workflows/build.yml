@@ -30,6 +30,21 @@ jobs:
           & "$env:RUNNER_TEMP\dm-dados\tools\ffmpeg.exe" -version | Select-Object -First 1
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+      - name: Regras (move para a subpasta e extrai com o tar do Windows)
+        shell: pwsh
+        run: |
+          $base = "$env:RUNNER_TEMP\dm-regras"
+          New-Item -ItemType Directory -Force "$base\origem" | Out-Null
+          Set-Content "$base\origem\leia.txt" "oi"
+          Compress-Archive "$base\origem\leia.txt" "$base\pacote.zip"
+          Set-Content "$base\relatorio.pdf" "pdf"
+          build/Release/dm-cli.exe --organizar "$base\relatorio.pdf" $base
+          build/Release/dm-cli.exe --organizar "$base\pacote.zip" $base --extrair
+          Get-ChildItem -Recurse $base | Select-Object -ExpandProperty FullName
+          $ok = (Test-Path "$base\Documents\relatorio.pdf") -or (Test-Path "$base\Documentos\relatorio.pdf")
+          $zip = Get-ChildItem -Recurse -Filter leia.txt $base | Where-Object { $_.Directory.Name -eq "pacote" }
+          if (-not $ok -or -not $zip -or (Get-ChildItem -Recurse -Filter pacote.zip $base)) { exit 1 }
+
       - name: Testes da extensão
         run: node --test tests/extension_lib.test.cjs
 

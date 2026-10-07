@@ -40,11 +40,12 @@ constexpr UINT kRefreshMilliseconds = 500;
 
 enum TrayCommand { kTrayOpen = 3001, kTrayExit };
 
-struct Column {
-    Str title;
-    int width;
-};
-constexpr Column kRuleColumns[] = {{Str::ColCondition, 340}, {Str::ColAction, 340}};
+// Mesma pasta, ignorando maiúsculas e barra no fim.
+bool sameFolder(std::wstring a, std::wstring b) {
+    while (!a.empty() && (a.back() == L'\\' || a.back() == L'/')) a.pop_back();
+    while (!b.empty() && (b.back() == L'\\' || b.back() == L'/')) b.pop_back();
+    return _wcsicmp(a.c_str(), b.c_str()) == 0;
+}
 
 }  // namespace
 
@@ -58,12 +59,14 @@ bool MainWindow::create(HINSTANCE instance, int showCommand, bool startHidden) {
 
     const std::wstring dataDirectory = app::dataDirectory();
     settingsPath_ = dm::joinPath(dataDirectory, L"settings.ini");
+    rulesPath_ = dm::joinPath(dataDirectory, L"rules.ini");
     app::registerBrowserIntegration(dataDirectory);
     loadSettings();
     applyLanguage();
     manager_ = std::make_unique<app::DownloadManager>(dm::joinPath(dataDirectory, L"downloads.dat"));
     videoTools_ = std::make_unique<app::VideoTools>(dataDirectory);
     manager_->setVideoTools(videoTools_.get());
+    loadRules();
     videoTools_->updateIfStale();
 
     WNDCLASSEXW windowClass{};
@@ -92,8 +95,8 @@ bool MainWindow::create(HINSTANCE instance, int showCommand, bool startHidden) {
 }
 
 bool MainWindow::preTranslate(MSG& message) {
-    HWND page = settingsPage_.handle();
-    return page && currentPage_ == kSettings && IsChild(page, message.hwnd) && IsDialogMessageW(page, &message);
+    HWND page = currentPage_ == kSettings ? settingsPage_.handle() : currentPage_ == kRules ? rulesPage_.handle() : nullptr;
+    return page && IsChild(page, message.hwnd) && IsDialogMessageW(page, &message);
 }
 
 LRESULT CALLBACK MainWindow::windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -121,10 +124,15 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             createControls();
             applyDpi(dpi_);
             manager_->onCompleted = [this](const app::DownloadItem& item) {
-                lastCompletedPath_ = dm::toWide(item.record.filePath);
+                lastCompletedId_ = item.record.id;
                 if (settings_.notifyOnComplete) {
-                    tray_.showNotification(tr(Str::NotifyCompleted), dm::fileNameOf(lastCompletedPath_));
+                    tray_.showNotification(tr(Str::NotifyCompleted),
+                                           dm::fileNameOf(dm::toWide(item.record.filePath)));
                 }
+            };
+            manager_->onOrganized = [](const std::wstring& path, bool openFile, bool openFolder) {
+                if (openFile) app::openFile(path);
+                if (openFolder) app::showInFolder(path);
             };
             applyQueueSettings();
             manager_->onWebPage = [this](const dm::DownloadRecord& record) {
@@ -281,6 +289,21 @@ void MainWindow::saveSettings() {
     dm::writeTextFileAtomically(settingsPath_, dm::serializeSettings(settings_));
 }
 
+void MainWindow::loadRules() {
+    const auto text = dm::readTextFile(rulesPath_);
+    rules_ = text ? dm::parseRules(*text)
+                  : dm::defaultRules(i18n::currentLanguage() == i18n::Language::Portuguese);
+    applyRules();
+}
+
+void MainWindow::saveRules() {
+    dm::writeTextFileAtomically(rulesPath_, dm::serializeRules(rules_));
+}
+
+void MainWindow::applyRules() {
+    manager_->setRules(rules_, settings_.rulesEnabled, downloadFolder());
+}
+
 void MainWindow::applyQueueSettings() {
     manager_->setMaxRunning(settings_.maxDownloads);
     manager_->setSchedule(settings_.scheduleEnabled, settings_.scheduleStart, settings_.scheduleEnd);
@@ -294,6 +317,7 @@ void MainWindow::onSettingsChanged(const dm::Settings& settings) {
     settings_ = settings;
     saveSettings();
     applyQueueSettings();
+    applyRules();  // a pasta padrão pode ter mudado
     if (startupChanged) app::setStartWithWindows(settings_.startWithWindows);
     if (languageChanged) {
         applyLanguage();
@@ -316,12 +340,7 @@ void MainWindow::applyTexts() {
     updateTabTitles();
     downloadsList_.applyTexts();
     completedList_.applyTexts();
-    for (int i = 0; i < static_cast<int>(std::size(kRuleColumns)); ++i) {
-        LVCOLUMNW column{};
-        column.mask = LVCF_TEXT;
-        column.pszText = const_cast<wchar_t*>(tr(kRuleColumns[i].title));
-        ListView_SetColumn(rulesList_, i, &column);
-    }
+    rulesPage_.applyTexts();
     settingsPage_.applyTexts();
     tray_.setTooltip(tr(Str::AppTitle));
     layout();
@@ -366,17 +385,17 @@ void MainWindow::createControls() {
     downloadsList_.onChanged = [this] { refreshLists(); };
     completedList_.onChanged = [this] { refreshLists(); };
 
-    rulesList_ = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_CHILD | WS_TABSTOP | LVS_REPORT | LVS_NOSORTHEADER, 0, 0,
-                                 0, 0, hwnd_, nullptr, instance_, nullptr);
-    SetWindowTheme(rulesList_, L"Explorer", nullptr);
-    for (int i = 0; i < static_cast<int>(std::size(kRuleColumns)); ++i) {
-        LVCOLUMNW column{};
-        column.mask = LVCF_TEXT | LVCF_WIDTH;
-        column.cx = kRuleColumns[i].width;
-        column.pszText = const_cast<wchar_t*>(tr(kRuleColumns[i].title));
-        ListView_InsertColumn(rulesList_, i, &column);
-    }
-    pages_[kRules] = rulesList_;
+    rulesPage_.onChanged = [this](const std::vector<dm::Rule>& rules, bool enabled) {
+        rules_ = rules;
+        saveRules();
+        if (enabled != settings_.rulesEnabled) {
+            settings_.rulesEnabled = enabled;
+            saveSettings();
+        }
+        applyRules();
+    };
+    pages_[kRules] = rulesPage_.create(hwnd_);
+    rulesPage_.setRules(rules_, settings_.rulesEnabled);
 
     settingsPage_.onChanged = [this](const dm::Settings& settings) { onSettingsChanged(settings); };
     pages_[kSettings] = settingsPage_.create(hwnd_);
@@ -395,14 +414,12 @@ void MainWindow::applyDpi(UINT dpi) {
     lstrcpynW(logFont.lfFaceName, L"Segoe UI", LF_FACESIZE);
     HFONT newFont = CreateFontIndirectW(&logFont);
 
-    for (HWND control : {tabs_, addButton_, pages_[kDownloads], pages_[kCompleted], rulesList_}) {
+    for (HWND control : {tabs_, addButton_, pages_[kDownloads], pages_[kCompleted]}) {
         SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(newFont), TRUE);
     }
     downloadsList_.applyDpi(dpi_);
     completedList_.applyDpi(dpi_);
-    for (int i = 0; i < static_cast<int>(std::size(kRuleColumns)); ++i) {
-        ListView_SetColumnWidth(rulesList_, i, scale(kRuleColumns[i].width));
-    }
+    rulesPage_.applyDpi(dpi_);
 
     if (font_) DeleteObject(font_);
     font_ = newFont;
@@ -428,7 +445,7 @@ void MainWindow::layout() {
     const int pageTop = margin + tabHeight + scale(4);
     const int pageHeight = client.bottom - pageTop - margin;
     for (int i = 0; i < kPageCount; ++i) {
-        const int inset = i == kSettings ? scale(4) : 0;
+        const int inset = i == kSettings || i == kRules ? scale(4) : 0;
         MoveWindow(pages_[i], margin + inset, pageTop + inset, client.right - margin * 2 - inset, pageHeight - inset,
                    TRUE);
     }
@@ -482,6 +499,11 @@ void MainWindow::checkWhenDone() {
     }
 }
 
+void MainWindow::markOrganize(uint64_t id, const std::wstring& folder) {
+    // Só organiza o que foi para a pasta padrão; quem escolheu outra pasta já decidiu onde fica.
+    if (id != 0) manager_->setOrganize(id, sameFolder(folder, downloadFolder()));
+}
+
 std::wstring MainWindow::downloadFolder() const {
     return settings_.downloadFolder.empty() ? app::defaultDownloadFolder() : dm::toWide(settings_.downloadFolder);
 }
@@ -497,8 +519,9 @@ void MainWindow::onAddClicked() {
         bool declined = false;
         addVideoFlow(request.url, request.folder, request.fileName, {}, {}, declined);
     } else {
-        manager_->add(dm::toUtf8(request.url), request.folder, request.fileName, settings_.connections, {}, {},
-                      /*rejectWebPages=*/true);
+        const uint64_t id = manager_->add(dm::toUtf8(request.url), request.folder, request.fileName,
+                                          settings_.connections, {}, {}, /*rejectWebPages=*/true);
+        markOrganize(id, request.folder);
     }
     showPage(kDownloads);
     refreshLists();
@@ -515,12 +538,15 @@ uint64_t MainWindow::addVideoFlow(const std::wstring& url, const std::wstring& f
     SHCreateDirectoryExW(nullptr, choice.folder.c_str(), nullptr);
 
     if (choice.downloadAsFile) {
-        return manager_->add(dm::toUtf8(url), choice.folder, {}, settings_.connections, headers, userAgent);
+        const uint64_t id = manager_->add(dm::toUtf8(url), choice.folder, {}, settings_.connections, headers, userAgent);
+        markOrganize(id, choice.folder);
+        return id;
     }
     uint64_t first = 0;
     for (const auto& item : choice.items) {
         const uint64_t id = manager_->addVideo(dm::toUtf8(item.url), choice.folder, item.title, choice.format,
                                                choice.subtitles, headers, userAgent);
+        markOrganize(id, choice.folder);
         if (first == 0) first = id;
     }
     refreshLists();
@@ -575,6 +601,7 @@ void MainWindow::onBrowserRequest(const dm::BrowserRequest& browserRequest) {
     SHCreateDirectoryExW(nullptr, request.folder.c_str(), nullptr);
     const uint64_t id = manager_->add(dm::toUtf8(request.url), request.folder, request.fileName, settings_.connections,
                                       request.headers, request.userAgent);
+    markOrganize(id, request.folder);
     if (ticket != browserTickets_.end()) ticket->second = {false, false, id};
     refreshLists();
 }
@@ -648,7 +675,9 @@ void MainWindow::onTrayMessage(WPARAM wParam, LPARAM lParam) {
             showWindowFromTray();
             break;
         case NIN_BALLOONUSERCLICK:
-            if (!lastCompletedPath_.empty()) app::showInFolder(lastCompletedPath_);
+            if (const app::DownloadItem* item = manager_->find(lastCompletedId_)) {
+                app::showInFolder(dm::toWide(item->record.filePath));
+            }
             break;
         case WM_CONTEXTMENU: {
             HMENU menu = CreatePopupMenu();
