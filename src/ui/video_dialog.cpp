@@ -41,7 +41,7 @@ public:
         if (titleFont_) DeleteObject(titleFont_);
     }
 
-    INT_PTR handle(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam) {
+    INT_PTR handle(HWND dialog, UINT message, WPARAM wParam, LPARAM /*lParam*/) {
         if (const INT_PTR brush = whiteBackground(message, wParam)) return brush;
         switch (message) {
             case WM_INITDIALOG: init(dialog); return FALSE;
