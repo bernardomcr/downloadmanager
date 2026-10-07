@@ -36,7 +36,9 @@ INT_PTR CALLBACK addDialogProc(HWND dialog, UINT message, WPARAM wParam, LPARAM 
             SetDlgItemTextW(dialog, IDC_URL, request->url.c_str());
             SetDlgItemTextW(dialog, IDC_FOLDER, request->folder.c_str());
             SetDlgItemTextW(dialog, IDC_NAME, request->fileName.c_str());
-            SetFocus(GetDlgItem(dialog, IDC_URL));
+            SetForegroundWindow(dialog);  // pode ter vindo do navegador, com o app na bandeja
+            // Pedido do navegador já tem link: o foco vai para o botão Baixar (Enter confirma).
+            SetFocus(GetDlgItem(dialog, request->url.empty() ? IDC_URL : IDOK));
             return FALSE;  // foco já definido
         }
         case WM_COMMAND:

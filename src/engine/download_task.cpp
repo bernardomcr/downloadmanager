@@ -17,15 +17,6 @@ constexpr size_t kBufferSize = 128 * 1024;
 constexpr auto kMonitorInterval = 500ms;
 constexpr auto kSaveInterval = 3s;
 
-// "video.mp4", 2 -> "video (2).mp4"
-std::wstring numberedName(const std::wstring& name, int number) {
-    if (number == 0) return name;
-    const size_t dot = name.find_last_of(L'.');
-    const std::wstring suffix = L" (" + std::to_wstring(number) + L")";
-    if (dot == std::wstring::npos || dot == 0) return name + suffix;
-    return name.substr(0, dot) + suffix + name.substr(dot);
-}
-
 // 0,5 s, 1 s, 2 s, 4 s, 8 s...: a primeira nova tentativa é quase imediata.
 std::chrono::milliseconds retryDelay(int failures) {
     return std::chrono::milliseconds(250 << std::clamp(failures, 1, 5));

@@ -43,8 +43,12 @@ public:
     void setSchedule(bool enabled, int startMinute, int endMinute);
     void setGlobalSpeedLimit(int64_t bytesPerSecond);
 
+    // headers: cabeçalhos extras (Cookie, Referer) do navegador; guardados criptografados.
     uint64_t add(const std::string& url, const std::wstring& directory, const std::wstring& fileName,
-                 int connections);
+                 int connections, const std::vector<std::pair<std::string, std::string>>& headers = {},
+                 const std::string& userAgent = {});
+    // Arquivo que o navegador baixou e o app organizou: entra direto em Concluídos.
+    uint64_t addCompleted(const std::string& url, const std::wstring& filePath, int64_t size);
     // Continuar: começa se houver vaga (e o agendador deixar); senão entra na fila.
     void resume(uint64_t id);
     // Começa já, sem esperar vaga nem horário.

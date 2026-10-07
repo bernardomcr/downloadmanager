@@ -52,7 +52,13 @@ app.exe (um único processo)
 1. **Engine HTTP** ✅ — multi-conexão com divisão dinâmica de segmentos, pausar/retomar, retomada após travamento, validação por tamanho/ETag, troca de link expirado (no motor; a UI vem na fase 2), `dm-cli`.
 2. **Interface** ✅ — janela principal com abas (com contadores), diálogo "Adicionar", barra de progresso/velocidade/tempo restante, menu de clique direito (pausar, continuar, trocar link, copiar link, abrir pasta, remover, apagar para a Lixeira), bandeja, aviso de concluído, Configurações (pasta, conexões, idioma ao vivo, bandeja, iniciar com o Windows, avisos), retomada automática ao reabrir.
 3. **Fila e agendador** ✅ — limite de downloads ao mesmo tempo (fila), "Começar agora", agendador por horário (atravessa a meia-noite), limite de velocidade total e por download, não deixar o PC dormir enquanto baixa, suspender/desligar quando tudo terminar (com contagem regressiva de 60 s e Cancelar; vale uma vez).
-4. **Navegador** — extensão capturando downloads (cookies/referer) e vídeos.
+4. **Navegador** ✅ — extensão (Firefox, Chrome, Edge, Brave) + `dm-host.exe` (Native Messaging). **Nenhum download fica fora da organização**:
+   - captura na origem repetindo exatamente os cabeçalhos que o navegador mandou (cookies, referer, Authorization, tokens do site, user agent);
+   - o navegador só larga o download depois que o app confirma que começou a receber; se o app falhar, o navegador continua;
+   - formulários (POST) e arquivos `blob:`/`data:` ficam com o navegador;
+   - tudo que o navegador terminar é **adotado**: movido para a pasta do app e listado em Concluídos;
+   - clique direito em links/vídeos/imagens: "Baixar com o Download Manager"; popup lista vídeos/áudios da página (badge com a contagem), sem nada flutuando na página;
+   - janela anônima fica com o navegador (privacidade).
 5. **Vídeos** — yt-dlp integrado, escolha de qualidade, playlists.
 6. **Torrent** — magnet/.torrent, seleção de arquivos, seed configurável.
 7. **Regras automáticas** — por extensão/site/tamanho: pasta destino, extrair, abrir, rodar comando.

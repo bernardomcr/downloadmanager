@@ -15,4 +15,9 @@ std::wstring fileNameOf(const std::wstring& path);
 std::wstring directoryOf(const std::wstring& path);
 std::wstring joinPath(const std::wstring& directory, const std::wstring& name);
 
+// "video.mp4", 2 -> "video (2).mp4"
+std::wstring numberedName(const std::wstring& name, int number);
+// Primeiro "nome", "nome (1)", "nome (2)"... que ainda não existe na pasta.
+std::wstring uniquePath(const std::wstring& directory, const std::wstring& name);
+
 }  // namespace dm

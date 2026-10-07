@@ -7,12 +7,37 @@
 #include "app/system.h"
 #include "core/rate_limiter.h"
 #include "util/file_io.h"
+#include "util/secure.h"
 #include "util/unicode.h"
 
 namespace app {
 namespace {
 
 constexpr int kSaveEveryTicks = 10;  // com o timer de 500 ms: salva o progresso a cada 5 s
+
+// Cabeçalhos guardados como linhas "Nome: valor", criptografadas para o usuário atual.
+std::string protectHeaders(const std::vector<std::pair<std::string, std::string>>& headers) {
+    std::string lines;
+    for (const auto& [name, value] : headers) lines += name + ": " + value + "\n";
+    return dm::protectForCurrentUser(lines);
+}
+
+std::vector<dm::HttpHeader> unprotectHeaders(const std::string& stored) {
+    std::vector<dm::HttpHeader> headers;
+    const auto lines = dm::unprotectForCurrentUser(stored);
+    if (!lines) return headers;
+    size_t start = 0;
+    while (start < lines->size()) {
+        size_t end = lines->find('\n', start);
+        if (end == std::string::npos) end = lines->size();
+        const std::string line = lines->substr(start, end - start);
+        if (const size_t colon = line.find(": "); colon != std::string::npos) {
+            headers.push_back({line.substr(0, colon), line.substr(colon + 2)});
+        }
+        start = end + 1;
+    }
+    return headers;
+}
 
 }  // namespace
 
@@ -113,7 +138,8 @@ void DownloadManager::save() {
 }
 
 uint64_t DownloadManager::add(const std::string& url, const std::wstring& directory, const std::wstring& fileName,
-                              int connections) {
+                              int connections, const std::vector<std::pair<std::string, std::string>>& headers,
+                              const std::string& userAgent) {
     auto item = std::make_unique<DownloadItem>();
     item->record.id = nextId_++;
     item->record.url = url;
@@ -121,10 +147,29 @@ uint64_t DownloadManager::add(const std::string& url, const std::wstring& direct
     item->record.fileName = dm::toUtf8(fileName);
     item->record.connections = connections;
     item->record.addedAt = unixNow();
+    item->record.protectedHeaders = protectHeaders(headers);
+    item->record.userAgent = userAgent;
     const uint64_t id = item->record.id;
     item->record.state = dm::RecordState::Queued;
     items_.push_back(std::move(item));
     advanceQueue();
+    save();
+    return id;
+}
+
+uint64_t DownloadManager::addCompleted(const std::string& url, const std::wstring& filePath, int64_t size) {
+    auto item = std::make_unique<DownloadItem>();
+    item->record.id = nextId_++;
+    item->record.url = url;
+    item->record.directory = dm::toUtf8(dm::directoryOf(filePath));
+    item->record.filePath = dm::toUtf8(filePath);
+    item->record.state = dm::RecordState::Completed;
+    item->record.totalSize = size;
+    item->record.downloaded = size;
+    item->record.addedAt = unixNow();
+    item->record.finishedAt = item->record.addedAt;
+    const uint64_t id = item->record.id;
+    items_.push_back(std::move(item));
     save();
     return id;
 }
@@ -265,6 +310,8 @@ void DownloadManager::startTask(DownloadItem& item) {
     options.connections = item.record.connections;
     options.speedLimit = item.record.speedLimit;
     options.sharedLimiter = globalLimiter_;
+    options.headers = unprotectHeaders(item.record.protectedHeaders);
+    if (!item.record.userAgent.empty()) options.userAgent = dm::toWide(item.record.userAgent);
     if (!item.record.filePath.empty()) {
         // Já sabemos o arquivo: mira nele, para continuar de onde parou.
         const std::wstring path = dm::toWide(item.record.filePath);

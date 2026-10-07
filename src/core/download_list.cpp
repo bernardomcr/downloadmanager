@@ -59,6 +59,8 @@ std::string serializeDownloadList(const std::vector<DownloadRecord>& records) {
         out << "finished " << record.finishedAt << '\n';
         out << "connections " << record.connections << '\n';
         out << "limit " << record.speedLimit << '\n';
+        if (!record.protectedHeaders.empty()) out << "headers " << singleLine(record.protectedHeaders) << '\n';
+        if (!record.userAgent.empty()) out << "agent " << singleLine(record.userAgent) << '\n';
         out << "error " << record.errorCode << ' ' << record.errorDetail << '\n';
     }
     return out.str();
@@ -104,6 +106,8 @@ std::vector<DownloadRecord> parseDownloadList(const std::string& text) {
         else if (key == "finished") parseNumber(value, current.finishedAt);
         else if (key == "connections") parseNumber(value, current.connections);
         else if (key == "limit") parseNumber(value, current.speedLimit);
+        else if (key == "headers") current.protectedHeaders = value;
+        else if (key == "agent") current.userAgent = value;
         else if (key == "error") {
             std::istringstream numbers(value);
             numbers >> current.errorCode >> current.errorDetail;

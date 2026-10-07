@@ -19,6 +19,8 @@ std::string serializeSettings(const Settings& settings) {
     out << "start-with-windows=" << (settings.startWithWindows ? 1 : 0) << '\n';
     out << "notify-on-complete=" << (settings.notifyOnComplete ? 1 : 0) << '\n';
     out << "keep-awake=" << (settings.keepAwake ? 1 : 0) << '\n';
+    out << "browser-ask=" << (settings.askForBrowserDownloads ? 1 : 0) << '\n';
+    out << "browser-adopt=" << (settings.adoptBrowserDownloads ? 1 : 0) << '\n';
     out << "max-downloads=" << settings.maxDownloads << '\n';
     out << "speed-limit-kbps=" << settings.speedLimitKBps << '\n';
     out << "schedule=" << (settings.scheduleEnabled ? 1 : 0) << '\n';
@@ -56,6 +58,10 @@ Settings parseSettings(const std::string& text) {
             settings.notifyOnComplete = value != "0";
         } else if (key == "keep-awake") {
             settings.keepAwake = value != "0";
+        } else if (key == "browser-ask") {
+            settings.askForBrowserDownloads = value != "0";
+        } else if (key == "browser-adopt") {
+            settings.adoptBrowserDownloads = value != "0";
         } else if (key == "max-downloads") {
             std::istringstream number(value);
             int count = 0;
@@ -86,7 +92,7 @@ int parseTimeOfDay(const std::string& text) {
 
 std::string formatTimeOfDay(int minutes) {
     minutes = std::clamp(minutes, 0, 24 * 60 - 1);
-    char text[8];
+    char text[16];
     std::snprintf(text, sizeof(text), "%02d:%02d", minutes / 60, minutes % 60);
     return text;
 }

@@ -46,4 +46,19 @@ std::wstring joinPath(const std::wstring& directory, const std::wstring& name) {
     return (last == L'\\' || last == L'/') ? directory + name : directory + L'\\' + name;
 }
 
+std::wstring numberedName(const std::wstring& name, int number) {
+    if (number == 0) return name;
+    const size_t dot = name.find_last_of(L'.');
+    const std::wstring suffix = L" (" + std::to_wstring(number) + L")";
+    if (dot == std::wstring::npos || dot == 0) return name + suffix;
+    return name.substr(0, dot) + suffix + name.substr(dot);
+}
+
+std::wstring uniquePath(const std::wstring& directory, const std::wstring& name) {
+    for (int number = 0;; ++number) {
+        const std::wstring path = joinPath(directory, numberedName(name, number));
+        if (!fileExists(path)) return path;
+    }
+}
+
 }  // namespace dm

@@ -21,6 +21,13 @@ jobs:
       - name: Testes
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Testes da extensão
+        run: node --test tests/extension_lib.test.cjs
+
+      - name: Empacotar a extensão
+        shell: pwsh
+        run: Compress-Archive -Path extension/* -DestinationPath build/Release/extensao-download-manager.zip
+
       - name: Publicar executáveis
         uses: actions/upload-artifact@v5
         with:
@@ -28,3 +35,5 @@ jobs:
           path: |
             build/Release/DownloadManager.exe
             build/Release/dm-cli.exe
+            build/Release/dm-host.exe
+            build/Release/extensao-download-manager.zip

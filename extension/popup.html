@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/icon-32.png" alt="" width="20" height="20">
+    <span data-i18n="extensionName"></span>
+  </header>
+  <label class="toggle">
+    <input type="checkbox" id="capture">
+    <span data-i18n="popupCapture"></span>
+  </label>
+  <p id="app-missing" class="warning" hidden data-i18n="popupAppMissing"></p>
+  <h2 data-i18n="popupMediaTitle"></h2>
+  <ul id="media"></ul>
+  <p id="empty" class="muted" hidden data-i18n="popupMediaEmpty"></p>
+  <p id="streams" class="muted" hidden data-i18n="popupStreamsLater"></p>
+  <script src="lib.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

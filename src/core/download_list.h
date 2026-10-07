@@ -30,6 +30,9 @@ struct DownloadRecord {
     int64_t finishedAt = 0;  // segundos Unix
     int connections = 8;
     int64_t speedLimit = 0;  // bytes/s; 0 = sem limite
+    // Cabeçalhos extras (Cookie, Referer) vindos do navegador, já criptografados pelo app (opaco aqui).
+    std::string protectedHeaders;
+    std::string userAgent;   // do navegador que mandou o download; vazio = padrão do app
     int errorCode = 0;       // DownloadError salvo como número
     unsigned long errorDetail = 0;
 };

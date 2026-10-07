@@ -33,6 +33,8 @@ void SettingsPage::applyTexts() {
     SetDlgItemTextW(dialog_, IDC_SET_START_WITH_WINDOWS, tr(Str::SettingsStartWithWindows));
     SetDlgItemTextW(dialog_, IDC_SET_NOTIFY, tr(Str::SettingsNotify));
     SetDlgItemTextW(dialog_, IDC_SET_KEEP_AWAKE, tr(Str::SettingsKeepAwake));
+    SetDlgItemTextW(dialog_, IDC_SET_BROWSER_ASK, tr(Str::SettingsBrowserAsk));
+    SetDlgItemTextW(dialog_, IDC_SET_ADOPT, tr(Str::SettingsAdopt));
     SetDlgItemTextW(dialog_, IDC_SET_MAX_DOWNLOADS_LABEL, tr(Str::SettingsMaxDownloads));
     SetDlgItemTextW(dialog_, IDC_SET_SPEED_LIMIT_LABEL, tr(Str::SettingsSpeedLimit));
     SetDlgItemTextW(dialog_, IDC_SET_SCHEDULE, tr(Str::SettingsSchedule));
@@ -65,6 +67,8 @@ void SettingsPage::fillControls() {
     CheckDlgButton(dialog_, IDC_SET_START_WITH_WINDOWS, settings_.startWithWindows ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog_, IDC_SET_NOTIFY, settings_.notifyOnComplete ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog_, IDC_SET_KEEP_AWAKE, settings_.keepAwake ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(dialog_, IDC_SET_BROWSER_ASK, settings_.askForBrowserDownloads ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(dialog_, IDC_SET_ADOPT, settings_.adoptBrowserDownloads ? BST_CHECKED : BST_UNCHECKED);
 
     SendDlgItemMessageW(dialog_, IDC_SET_MAX_DOWNLOADS_SPIN, UDM_SETRANGE32, 1, 10);
     SendDlgItemMessageW(dialog_, IDC_SET_MAX_DOWNLOADS_SPIN, UDM_SETPOS32, 0, settings_.maxDownloads);
@@ -184,6 +188,14 @@ INT_PTR SettingsPage::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
             return TRUE;
         case IDC_SET_KEEP_AWAKE:
             settings_.keepAwake = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
+            notify();
+            return TRUE;
+        case IDC_SET_ADOPT:
+            settings_.adoptBrowserDownloads = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
+            notify();
+            return TRUE;
+        case IDC_SET_BROWSER_ASK:
+            settings_.askForBrowserDownloads = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
             notify();
             return TRUE;
         case IDC_SET_MAX_DOWNLOADS:

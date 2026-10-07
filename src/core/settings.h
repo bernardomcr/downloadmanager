@@ -18,6 +18,8 @@ struct Settings {
     bool startWithWindows = true;
     bool notifyOnComplete = true;
     bool keepAwake = true;          // não deixa o PC dormir enquanto baixa
+    bool askForBrowserDownloads = true;  // download vindo do navegador abre o diálogo "Adicionar" preenchido
+    bool adoptBrowserDownloads = true;   // o que o navegador baixar sozinho é movido para a pasta do app
 
     int maxDownloads = 3;           // downloads ao mesmo tempo; o resto espera na fila
     int64_t speedLimitKBps = 0;     // limite total; 0 = sem limite

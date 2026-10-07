@@ -6,10 +6,12 @@
 #include <uxtheme.h>
 #include <windowsx.h>
 
+#include "app/browser_integration.h"
 #include "app/system.h"
 #include "i18n/strings.h"
 #include "resource.h"
 #include "ui/dialogs.h"
+#include "core/http_headers.h"
 #include "util/file_io.h"
 #include "util/unicode.h"
 
@@ -31,6 +33,7 @@ constexpr COLORREF kBackground = RGB(255, 255, 255);
 constexpr int kIdTabs = 100;
 constexpr int kIdAddButton = 101;
 constexpr UINT_PTR kRefreshTimer = 1;
+constexpr UINT kProcessBrowserRequests = WM_APP + 2;
 constexpr UINT kRefreshMilliseconds = 500;
 
 enum TrayCommand { kTrayOpen = 3001, kTrayExit };
@@ -53,6 +56,7 @@ bool MainWindow::create(HINSTANCE instance, int showCommand, bool startHidden) {
 
     const std::wstring dataDirectory = app::dataDirectory();
     settingsPath_ = dm::joinPath(dataDirectory, L"settings.ini");
+    app::registerBrowserIntegration(dataDirectory);
     loadSettings();
     applyLanguage();
     manager_ = std::make_unique<app::DownloadManager>(dm::joinPath(dataDirectory, L"downloads.dat"));
@@ -182,6 +186,38 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     return 0;
             }
             break;
+
+        case WM_COPYDATA: {
+            // Responde logo (o dm-host.exe está esperando) e trata o pedido depois, fora desta chamada.
+            const auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
+            if (!data || !data->lpData) return FALSE;
+            if (data->dwData == app::kCopyDataRequestStatus) {
+                return browserRequestStatus(std::string(static_cast<const char*>(data->lpData), data->cbData));
+            }
+            if (data->dwData == app::kCopyDataAdopt) {
+                auto adopt = dm::parseAdoptRequest(std::string(static_cast<const char*>(data->lpData), data->cbData));
+                if (!adopt) return FALSE;
+                pendingAdoptions_.push_back({std::move(*adopt), 0});
+                PostMessageW(hwnd_, kProcessBrowserRequests, 0, 0);
+                return TRUE;
+            }
+            if (data->dwData != app::kCopyDataBrowserRequest) return FALSE;
+            const std::string json(static_cast<const char*>(data->lpData), data->cbData);
+            auto request = dm::parseBrowserRequest(json);
+            if (!request) return FALSE;
+            if (!request->token.empty()) {
+                if (browserTickets_.size() > 200) browserTickets_.clear();  // pedidos antigos e esquecidos
+                browserTickets_[request->token] = BrowserTicket{};
+            }
+            pendingBrowserRequests_.push_back(std::move(*request));
+            PostMessageW(hwnd_, kProcessBrowserRequests, 0, 0);
+            return TRUE;
+        }
+
+        case kProcessBrowserRequests:
+            processAdoptions();
+            processBrowserRequests();
+            return 0;
 
         case TrayIcon::kCallbackMessage:
             onTrayMessage(wParam, lParam);
@@ -393,6 +429,7 @@ void MainWindow::refreshLists() {
 }
 
 void MainWindow::onTimer() {
+    if (!pendingAdoptions_.empty()) processAdoptions();
     const bool changed = manager_->tick();
 
     const bool working = manager_->runningCount() > 0;
@@ -440,6 +477,105 @@ void MainWindow::onAddClicked() {
     manager_->add(dm::toUtf8(request.url), request.folder, request.fileName, settings_.connections);
     showPage(kDownloads);
     refreshLists();
+}
+
+void MainWindow::processBrowserRequests() {
+    // Um diálogo de cada vez; os outros pedidos esperam a vez.
+    if (showingBrowserDialog_) return;
+    while (!pendingBrowserRequests_.empty()) {
+        const dm::BrowserRequest request = pendingBrowserRequests_.front();
+        pendingBrowserRequests_.erase(pendingBrowserRequests_.begin());
+        onBrowserRequest(request);
+    }
+}
+
+void MainWindow::onBrowserRequest(const dm::BrowserRequest& browserRequest) {
+    AddRequest request;
+    request.url = dm::toWide(browserRequest.url);
+    request.folder = downloadFolder();
+    request.fileName = dm::toWide(dm::sanitizeFileName(browserRequest.fileName));
+    if (browserRequest.fileName.empty()) request.fileName.clear();
+    request.headers = dm::browserHeaders(browserRequest);
+    request.userAgent = browserRequest.userAgent;
+
+    auto ticket = browserTickets_.find(browserRequest.token);
+    if (settings_.askForBrowserDownloads) {
+        showingBrowserDialog_ = true;
+        const bool confirmed = showAddDialog(IsWindowVisible(hwnd_) ? hwnd_ : nullptr, request);
+        showingBrowserDialog_ = false;
+        ticket = browserTickets_.find(browserRequest.token);  // o mapa pode ter mudado durante o diálogo
+        if (!confirmed) {
+            if (ticket != browserTickets_.end()) ticket->second = {false, true, 0};
+            return;
+        }
+    }
+    if (request.folder.empty()) request.folder = downloadFolder();
+    SHCreateDirectoryExW(nullptr, request.folder.c_str(), nullptr);
+    const uint64_t id = manager_->add(dm::toUtf8(request.url), request.folder, request.fileName, settings_.connections,
+                                      request.headers, request.userAgent);
+    if (ticket != browserTickets_.end()) ticket->second = {false, false, id};
+    refreshLists();
+}
+
+LRESULT MainWindow::browserRequestStatus(const std::string& token) {
+    const auto ticket = browserTickets_.find(token);
+    if (ticket == browserTickets_.end()) return app::kStatusUnknown;
+    if (ticket->second.pending) return app::kStatusWaiting;
+    if (ticket->second.declined) {
+        browserTickets_.erase(ticket);
+        return app::kStatusDeclined;
+    }
+
+    const uint64_t id = ticket->second.id;
+    const app::DownloadItem* item = manager_->find(id);
+    if (!item) {
+        browserTickets_.erase(ticket);
+        return app::kStatusUnknown;
+    }
+    if (item->record.state == dm::RecordState::Failed) {
+        // O navegador continua sozinho e o app adota o arquivo no fim; este item sairia duplicado.
+        browserTickets_.erase(ticket);
+        manager_->remove(id, true);
+        refreshLists();
+        return app::kStatusFailed;
+    }
+    if (item->running() && item->live.status == dm::DownloadStatus::Connecting) return app::kStatusWaiting;
+    browserTickets_.erase(ticket);
+    return app::kStatusStarted;
+}
+
+void MainWindow::processAdoptions() {
+    for (size_t i = 0; i < pendingAdoptions_.size();) {
+        PendingAdoption& adoption = pendingAdoptions_[i];
+        // O navegador (ou o antivírus) pode segurar o arquivo por alguns segundos depois de terminar.
+        if (adoptFile(adoption.request) || ++adoption.attempts >= 20) {
+            pendingAdoptions_.erase(pendingAdoptions_.begin() + static_cast<std::ptrdiff_t>(i));
+        } else {
+            ++i;
+        }
+    }
+}
+
+bool MainWindow::adoptFile(const dm::AdoptRequest& request) {
+    if (!settings_.adoptBrowserDownloads) return true;
+    const std::wstring source = dm::toWide(request.path);
+    WIN32_FILE_ATTRIBUTE_DATA info{};
+    if (!GetFileAttributesExW(source.c_str(), GetFileExInfoStandard, &info)) {
+        return GetLastError() != ERROR_SHARING_VIOLATION;  // sumiu: nada a fazer
+    }
+    if (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) return true;
+    const int64_t size = (static_cast<int64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
+
+    const std::wstring folder = downloadFolder();
+    std::wstring target = source;
+    if (_wcsicmp(dm::directoryOf(source).c_str(), folder.c_str()) != 0) {
+        SHCreateDirectoryExW(nullptr, folder.c_str(), nullptr);
+        target = dm::uniquePath(folder, dm::fileNameOf(source));
+        if (!MoveFileExW(source.c_str(), target.c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH)) return false;
+    }
+    manager_->addCompleted(request.url, target, size);
+    refreshLists();
+    return true;
 }
 
 void MainWindow::onTrayMessage(WPARAM wParam, LPARAM lParam) {

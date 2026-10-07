@@ -18,9 +18,12 @@ configure_file(src/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/version.h 
 
 # Núcleo portátil (sem Windows): segmentos, cabeçalhos HTTP, estado de retomada, formatação.
 add_library(dm_core STATIC
+    src/core/base64.cpp
+    src/core/browser_request.cpp
     src/core/download_list.cpp
     src/core/format.cpp
     src/core/http_headers.cpp
+    src/core/json.cpp
     src/core/rate_limiter.cpp
     src/core/resume_state.cpp
     src/core/segments.cpp
@@ -48,12 +51,14 @@ if(WIN32)
         src/i18n/errors.cpp
         src/i18n/strings.cpp
         src/util/file_io.cpp
+        src/util/secure.cpp
         src/util/unicode.cpp
     )
-    target_link_libraries(dm_engine PUBLIC dm_core winhttp)
+    target_link_libraries(dm_engine PUBLIC dm_core winhttp crypt32)
 
     add_executable(DownloadManager WIN32
         src/main.cpp
+        src/app/browser_integration.cpp
         src/app/download_manager.cpp
         src/app/system.cpp
         src/ui/dialogs.cpp
@@ -72,14 +77,23 @@ if(WIN32)
     )
     target_link_libraries(dm-cli PRIVATE dm_engine)
 
-    foreach(app DownloadManager dm-cli)
+    # Ponte com a extensão do navegador (Native Messaging). Console: o navegador conversa por stdin/stdout.
+    add_executable(dm-host
+        src/host/main.cpp
+    )
+    target_link_libraries(dm-host PRIVATE dm_core)
+
+    foreach(app DownloadManager dm-cli dm-host)
         if(MSVC)
             set_property(TARGET ${app} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
             # O manifesto vem do app.rc.
             target_link_options(${app} PRIVATE /MANIFEST:NO)
         else()
-            target_compile_options(${app} PRIVATE -municode)
-            target_link_options(${app} PRIVATE -municode -static -s)
+            if(NOT app STREQUAL "dm-host")
+                target_compile_options(${app} PRIVATE -municode)
+                target_link_options(${app} PRIVATE -municode)
+            endif()
+            target_link_options(${app} PRIVATE -static -s)
         endif()
     endforeach()
     foreach(lib dm_engine)

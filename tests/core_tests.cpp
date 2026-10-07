@@ -6,9 +6,12 @@
 #include <thread>
 #include <vector>
 
+#include "core/base64.h"
+#include "core/browser_request.h"
 #include "core/download_list.h"
 #include "core/format.h"
 #include "core/http_headers.h"
+#include "core/json.h"
 #include "core/rate_limiter.h"
 #include "core/resume_state.h"
 #include "core/segments.h"
@@ -173,6 +176,8 @@ void testDownloadList() {
     record.finishedAt = 1700000100;
     record.connections = 4;
     record.speedLimit = 51200;
+    record.protectedHeaders = "QUJD";
+    record.userAgent = "Mozilla/5.0 (X)";
     record.errorCode = 3;
     record.errorDetail = 404;
 
@@ -187,6 +192,7 @@ void testDownloadList() {
     CHECK(parsed[0].finishedAt == 1700000100 && parsed[0].connections == 4);
     CHECK(parsed[0].errorCode == 3 && parsed[0].errorDetail == 404);
     CHECK(parsed[1].state == dm::RecordState::Queued && parsed[0].speedLimit == 51200);
+    CHECK(parsed[0].protectedHeaders == "QUJD" && parsed[0].userAgent == "Mozilla/5.0 (X)");
 
     // Item sem URL é descartado; o resto continua.
     CHECK(dm::parseDownloadList("dmlist 1\n[download]\nid 1\n[download]\nid 2\nurl x\n").size() == 1);
@@ -259,6 +265,87 @@ void testSchedule() {
     CHECK(dm::formatTimeOfDay(450) == "07:30");
 }
 
+void testJson() {
+    const auto value = dm::parseJson(R"({"a":"x\u00e7\ud83d\ude00","n":-1.5e2,"t":true,"l":[1,{"b":null}],"e":"\"\n"})");
+    CHECK(value.has_value());
+    CHECK(value->string("a") == "x\xC3\xA7\xF0\x9F\x98\x80");  // ç e 😀 em UTF-8
+    CHECK(value->number("n") == -150.0);
+    CHECK(value->boolean("t") == true);
+    CHECK(value->field("l") && value->field("l")->array() && value->field("l")->array()->size() == 2);
+    CHECK(value->string("e") == "\"\n");
+    CHECK(value->string("missing").empty() && !value->number("a"));
+
+    // Ida e volta.
+    const auto again = dm::parseJson(value->serialize());
+    CHECK(again && again->string("a") == value->string("a") && again->string("e") == "\"\n");
+
+    for (const char* bad : {"", "{", "{\"a\":}", "[1,]", "{\"a\":1} x", "\"\\x\"", "nul", "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"}) {
+        CHECK(!dm::parseJson(bad).has_value());
+    }
+}
+
+void testBrowserRequest() {
+    dm::BrowserRequest request;
+    request.url = "https://example.com/a.zip";
+    request.fileName = "a.zip";
+    request.referrer = "https://example.com/page";
+    request.cookies = "sid=1; x=2";
+    request.userAgent = "Mozilla/5.0";
+    request.source = dm::BrowserRequest::Source::Link;
+
+    const auto parsed = dm::parseBrowserRequest(dm::serializeBrowserRequest(request));
+    CHECK(parsed && parsed->url == request.url && parsed->cookies == request.cookies);
+    CHECK(parsed->source == dm::BrowserRequest::Source::Link && parsed->referrer == request.referrer);
+    const auto headers = dm::browserHeaders(*parsed);
+    CHECK(headers.size() == 2 && headers[0].first == "Cookie" && headers[1].first == "Referer");
+
+    CHECK(!dm::parseBrowserRequest(R"({"type":"add","url":"file:///C:/Windows/win.ini"})"));
+    CHECK(!dm::parseBrowserRequest(R"({"type":"add","url":"javascript:void"})"));
+    CHECK(!dm::parseBrowserRequest(R"({"type":"other","url":"https://a.com/x"})"));
+    // Cabeçalho com quebra de linha (tentativa de injeção) é descartado; o resto continua valendo.
+    const auto injected = dm::parseBrowserRequest(R"({"type":"add","url":"https://a.com/x","cookies":"a=1\r\nX-Evil: 1"})");
+    CHECK(injected && injected->cookies.empty());
+    const auto badReferrer = dm::parseBrowserRequest(R"({"type":"add","url":"https://a.com/x","referrer":"file:///x"})");
+    CHECK(badReferrer && badReferrer->referrer.empty());
+
+    // Cabeçalhos extras: os de controle e os malformados são descartados; Cookie da lista vale.
+    const auto extra = dm::parseBrowserRequest(
+        R"({"type":"add","url":"https://a.com/x","token":"t-1","headers":[)"
+        R"({"name":"Authorization","value":"Bearer abc"},{"name":"Host","value":"evil"},)"
+        R"({"name":"Range","value":"bytes=5-"},{"name":"Bad Name","value":"x"},)"
+        R"({"name":"X-Evil","value":"a\r\nb: c"},{"name":"Cookie","value":"sid=9"}]})");
+    CHECK(extra && extra->token == "t-1" && extra->cookies == "sid=9");
+    CHECK(extra->headers.size() == 1 && extra->headers[0].first == "Authorization");
+    const auto all = dm::browserHeaders(*extra);
+    CHECK(all.size() == 2 && all[0].first == "Cookie" && all[1].first == "Authorization");
+    const auto roundTrip = dm::parseBrowserRequest(dm::serializeBrowserRequest(*extra));
+    CHECK(roundTrip && roundTrip->headers == extra->headers && roundTrip->token == "t-1");
+
+    const auto adopt = dm::parseAdoptRequest(R"({"type":"adopt","path":"C:\\Users\\a\\Downloads\\x.zip","url":"https://a.com/x"})");
+    CHECK(adopt && adopt->path == "C:\\Users\\a\\Downloads\\x.zip" && adopt->url == "https://a.com/x");
+    CHECK(adopt && dm::parseAdoptRequest(dm::serializeAdoptRequest(*adopt)).has_value());
+    CHECK(dm::parseAdoptRequest(R"({"type":"adopt","path":"\\\\server\\share\\x.zip"})").has_value());
+    CHECK(!dm::parseAdoptRequest(R"({"type":"adopt","path":"x.zip"})"));
+    CHECK(!dm::parseAdoptRequest(R"({"type":"adopt","path":"C:\\a\\..\\Windows\\x"})"));
+    CHECK(!dm::parseAdoptRequest(R"({"type":"adopt","path":"\\\\?\\C:\\x"})"));
+    CHECK(!dm::parseAdoptRequest(R"({"type":"add","path":"C:\\x"})"));
+}
+
+void testBase64() {
+    CHECK(dm::base64Encode("") == "");
+    CHECK(dm::base64Encode("f") == "Zg==");
+    CHECK(dm::base64Encode("fo") == "Zm8=");
+    CHECK(dm::base64Encode("foo") == "Zm9v");
+    CHECK(dm::base64Decode("Zm9vYmFy") == std::optional<std::string>("foobar"));
+    CHECK(dm::base64Decode("Zg==") == std::optional<std::string>("f"));
+    std::string binary;
+    for (int i = 0; i < 256; ++i) binary += static_cast<char>(i);
+    CHECK(dm::base64Decode(dm::base64Encode(binary)) == std::optional<std::string>(binary));
+    CHECK(!dm::base64Decode("Zg="));
+    CHECK(!dm::base64Decode("Z=g="));
+    CHECK(!dm::base64Decode("****"));
+}
+
 }  // namespace
 
 int main() {
@@ -273,6 +360,9 @@ int main() {
     testSettings();
     testRateLimiter();
     testSchedule();
+    testJson();
+    testBrowserRequest();
+    testBase64();
 
     if (g_failures == 0) std::printf("Todos os testes passaram.\n");
     return g_failures == 0 ? 0 : 1;

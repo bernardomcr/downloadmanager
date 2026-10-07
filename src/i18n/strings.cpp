@@ -104,6 +104,8 @@ constexpr Table kPortuguese = {
     L"O computador vai suspender em %d segundos.",
     L"Agora",
     L"máx.",
+    L"Downloads vindos do navegador: perguntar onde salvar",
+    L"Organizar também o que o navegador baixar sozinho",
 };
 
 constexpr Table kEnglish = {
@@ -201,6 +203,8 @@ constexpr Table kEnglish = {
     L"The computer will go to sleep in %d seconds.",
     L"Now",
     L"max.",
+    L"Downloads from the browser: ask where to save",
+    L"Also organize what the browser downloads by itself",
 };
 
 // Falha na compilação se alguma tradução ficou faltando.

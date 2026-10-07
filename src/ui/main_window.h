@@ -3,10 +3,13 @@
 #include <windows.h>
 
 #include <array>
+#include <map>
 #include <memory>
 #include <string>
 
 #include "app/download_manager.h"
+#include "app/ipc.h"
+#include "core/browser_request.h"
 #include "core/settings.h"
 #include "ui/download_list_view.h"
 #include "ui/settings_page.h"
@@ -17,7 +20,7 @@ namespace ui {
 // Janela principal: barra de abas + botão "Adicionar" no topo e uma página por aba.
 class MainWindow {
 public:
-    static constexpr const wchar_t* kClassName = L"DownloadManager.MainWindow";
+    static constexpr const wchar_t* kClassName = app::kMainWindowClass;
 
     // startHidden: aberto pelo Windows ao iniciar a sessão; fica só na bandeja.
     bool create(HINSTANCE instance, int showCommand, bool startHidden);
@@ -48,6 +51,13 @@ private:
     void refreshLists();
     void onTimer();
     void onAddClicked();
+    // Pedido vindo da extensão do navegador (via dm-host.exe).
+    void onBrowserRequest(const dm::BrowserRequest& request);
+    void processBrowserRequests();
+    LRESULT browserRequestStatus(const std::string& token);
+    // Move para a pasta do app um arquivo que o navegador terminou. false: tentar de novo depois.
+    bool adoptFile(const dm::AdoptRequest& request);
+    void processAdoptions();
     void onTrayMessage(WPARAM wParam, LPARAM lParam);
     void showWindowFromTray();
     void exitApp();
@@ -81,6 +91,22 @@ private:
     std::wstring lastCompletedPath_;
     bool sawWork_ = false;      // houve download desde que a ação de "quando terminar" foi escolhida
     bool keepingAwake_ = false;
+    std::vector<dm::BrowserRequest> pendingBrowserRequests_;
+    bool showingBrowserDialog_ = false;
+
+    // Andamento dos pedidos do navegador, para a extensão saber quando largar a cópia dela.
+    struct BrowserTicket {
+        bool pending = true;
+        bool declined = false;
+        uint64_t id = 0;
+    };
+    std::map<std::string, BrowserTicket> browserTickets_;
+
+    struct PendingAdoption {
+        dm::AdoptRequest request;
+        int attempts = 0;
+    };
+    std::vector<PendingAdoption> pendingAdoptions_;
 };
 
 }  // namespace ui

@@ -4,6 +4,8 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace ui {
 
@@ -11,6 +13,9 @@ struct AddRequest {
     std::wstring url;
     std::wstring folder;
     std::wstring fileName;
+    // Do navegador; não aparecem no diálogo, só seguem junto com o download.
+    std::vector<std::pair<std::string, std::string>> headers;
+    std::string userAgent;
 };
 
 // Diálogo "Adicionar download". `request` entra com os valores iniciais e sai com o que o usuário confirmou.

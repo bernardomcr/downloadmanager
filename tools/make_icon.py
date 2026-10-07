@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera res/app.ico: quadrado azul arredondado com uma seta branca para baixo.
+"""Gera res/app.ico e os ícones da extensão: quadrado azul arredondado com uma seta branca para baixo.
 
     python3 tools/make_icon.py
 """
@@ -34,6 +34,11 @@ def main() -> None:
     images = [draw(size) for size in sizes]
     images[-1].save(out, format="ICO", sizes=[(size, size) for size in sizes], append_images=images[:-1])
     print(out, out.stat().st_size, "bytes")
+
+    icons = out.parent.parent / "extension" / "icons"
+    icons.mkdir(parents=True, exist_ok=True)
+    for size in (16, 32, 48, 128):
+        draw(size).save(icons / f"icon-{size}.png")
 
 
 if __name__ == "__main__":

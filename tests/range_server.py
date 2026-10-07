@@ -4,10 +4,14 @@
 Serve um arquivo com suporte a Range, limitando a velocidade por conexão (para mostrar o ganho
 de várias conexões) e, opcionalmente, derrubando conexões no meio (para testar a recuperação).
 
-    python3 tests/range_server.py ARQUIVO [--port 8765] [--rate 2000000] [--drop 0.0] [--no-range]
+    python3 tests/range_server.py ARQUIVO [--port 8765] [--rate 2000000] [--drop 0.0] [--no-range] [--log ARQ]
+
+Com --log, cada pedido grava uma linha JSON com o caminho e os cabeçalhos recebidos.
+Caminhos começando com /auth/ exigem o cabeçalho "Authorization: Bearer segredo" (senão 403).
 """
 import argparse
 import hashlib
+import json
 import os
 import random
 import socket
@@ -16,7 +20,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-def make_handler(path, rate, drop, no_range, stats):
+def make_handler(path, rate, drop, no_range, stats, log):
     size = os.path.getsize(path)
     with open(path, "rb") as f:
         etag = '"%s"' % hashlib.md5(f.read(1 << 20)).hexdigest()
@@ -30,6 +34,14 @@ def make_handler(path, rate, drop, no_range, stats):
         def do_GET(self):
             with stats["lock"]:
                 stats["requests"] += 1
+                if log:
+                    with open(log, "a") as out:
+                        out.write(json.dumps({"path": self.path, "headers": dict(self.headers)}) + "\n")
+            if self.path.startswith("/auth/") and self.headers.get("Authorization") != "Bearer segredo":
+                self.send_response(403)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if self.path.startswith("/redirect"):
                 self.send_response(302)
                 self.send_header("Location", "/files/" + os.path.basename(path))
@@ -94,11 +106,12 @@ def main():
     parser.add_argument("--rate", type=int, default=0, help="bytes/s por conexão (0 = sem limite)")
     parser.add_argument("--drop", type=float, default=0.0, help="chance de derrubar a conexão a cada 16 KB")
     parser.add_argument("--no-range", action="store_true")
+    parser.add_argument("--log")
     args = parser.parse_args()
 
     stats = {"requests": 0, "lock": threading.Lock()}
     server = ThreadingHTTPServer(("127.0.0.1", args.port),
-                                 make_handler(args.file, args.rate, args.drop, args.no_range, stats))
+                                 make_handler(args.file, args.rate, args.drop, args.no_range, stats, args.log))
     server.daemon_threads = True
     server.serve_forever()
 

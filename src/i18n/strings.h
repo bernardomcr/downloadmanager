@@ -102,6 +102,8 @@ enum class Str {
     CountdownSleep,
     CountdownNow,
     SpeedLimitedSuffix,
+    SettingsBrowserAsk,
+    SettingsAdopt,
     Count  // manter por último
 };
 
