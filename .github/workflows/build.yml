@@ -6,9 +6,15 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Um push novo cancela o build anterior do mesmo branch.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 30  # o build normal leva ~2 min; mais que isso é runner travado
     steps:
       - uses: actions/checkout@v5
 
