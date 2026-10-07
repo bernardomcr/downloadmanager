@@ -25,6 +25,23 @@ enum class Str {
     ColCondition,
     ColAction,
     ComingSoon,
+    ErrInvalidUrl,
+    ErrNameNotResolved,
+    ErrCannotConnect,
+    ErrTimeout,
+    ErrConnectionLost,
+    ErrSecureConnection,
+    ErrHttpStatus,      // %lu = status HTTP
+    ErrLinkExpired,     // %lu = status HTTP
+    ErrServerChanged,
+    ErrDiskFull,
+    ErrAccessDenied,
+    ErrFileSystem,      // %lu = código do Windows
+    ErrNetwork,         // %lu = código do Windows
+    CliUsage,
+    CliPaused,
+    CliPausedNotResumable,
+    CliCompleted,       // %ls = caminho do arquivo
     Count  // manter por último
 };
 

@@ -1,0 +1,32 @@
+#include "i18n/errors.h"
+
+#include <cwchar>
+
+#include "i18n/strings.h"
+
+namespace i18n {
+
+std::wstring describeError(dm::DownloadError error, unsigned long detail) {
+    Str id;
+    switch (error) {
+        case dm::DownloadError::None: return {};
+        case dm::DownloadError::InvalidUrl: id = Str::ErrInvalidUrl; break;
+        case dm::DownloadError::NameNotResolved: id = Str::ErrNameNotResolved; break;
+        case dm::DownloadError::CannotConnect: id = Str::ErrCannotConnect; break;
+        case dm::DownloadError::Timeout: id = Str::ErrTimeout; break;
+        case dm::DownloadError::ConnectionLost: id = Str::ErrConnectionLost; break;
+        case dm::DownloadError::SecureConnection: id = Str::ErrSecureConnection; break;
+        case dm::DownloadError::HttpStatus: id = Str::ErrHttpStatus; break;
+        case dm::DownloadError::LinkExpired: id = Str::ErrLinkExpired; break;
+        case dm::DownloadError::ServerChanged: id = Str::ErrServerChanged; break;
+        case dm::DownloadError::DiskFull: id = Str::ErrDiskFull; break;
+        case dm::DownloadError::AccessDenied: id = Str::ErrAccessDenied; break;
+        case dm::DownloadError::FileSystem: id = Str::ErrFileSystem; break;
+        default: id = Str::ErrNetwork; break;
+    }
+    wchar_t buffer[256];
+    std::swprintf(buffer, 256, tr(id), detail);
+    return buffer;
+}
+
+}  // namespace i18n

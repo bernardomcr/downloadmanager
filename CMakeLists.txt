@@ -1,33 +1,96 @@
 cmake_minimum_required(VERSION 3.21)
-project(DownloadManager VERSION 0.1.0 LANGUAGES CXX RC)
+project(DownloadManager VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Opções comuns a todos os alvos.
+add_library(dm_options INTERFACE)
+target_include_directories(dm_options INTERFACE src ${CMAKE_CURRENT_BINARY_DIR}/generated)
+if(MSVC)
+    target_compile_options(dm_options INTERFACE /W4 /permissive- /utf-8 /EHsc)
+else()
+    target_compile_options(dm_options INTERFACE -Wall -Wextra)
+endif()
+
 configure_file(src/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/version.h @ONLY)
 
-add_executable(DownloadManager WIN32
-    src/main.cpp
-    src/i18n/strings.cpp
-    src/ui/main_window.cpp
-    res/app.rc
+# Núcleo portátil (sem Windows): segmentos, cabeçalhos HTTP, estado de retomada, formatação.
+add_library(dm_core STATIC
+    src/core/format.cpp
+    src/core/http_headers.cpp
+    src/core/resume_state.cpp
+    src/core/segments.cpp
 )
-
-target_include_directories(DownloadManager PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_compile_definitions(DownloadManager PRIVATE
-    UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX
-    _WIN32_WINNT=0x0A00 WINVER=0x0A00)
-target_link_libraries(DownloadManager PRIVATE comctl32)
-set_target_properties(DownloadManager PROPERTIES OUTPUT_NAME "DownloadManager")
+target_link_libraries(dm_core PUBLIC dm_options)
 
 if(MSVC)
-    # Runtime estático: o .exe roda sem o Visual C++ Redistributable.
-    set_property(TARGET DownloadManager PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    target_compile_options(DownloadManager PRIVATE /W4 /permissive- /utf-8 /EHsc)
-    # O manifesto vem do app.rc.
-    target_link_options(DownloadManager PRIVATE /MANIFEST:NO)
-else()
-    target_compile_options(DownloadManager PRIVATE -Wall -Wextra -municode)
-    target_link_options(DownloadManager PRIVATE -municode -static -s)
+    # Runtime estático: os .exe rodam sem o Visual C++ Redistributable.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET dm_core PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+if(WIN32)
+    enable_language(RC)
+
+    target_compile_definitions(dm_options INTERFACE
+        UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+
+    # Motor de download (WinHTTP) e textos traduzidos.
+    add_library(dm_engine STATIC
+        src/engine/download_task.cpp
+        src/engine/http.cpp
+        src/engine/output_file.cpp
+        src/i18n/errors.cpp
+        src/i18n/strings.cpp
+        src/util/unicode.cpp
+    )
+    target_link_libraries(dm_engine PUBLIC dm_core winhttp)
+
+    add_executable(DownloadManager WIN32
+        src/main.cpp
+        src/ui/main_window.cpp
+        res/app.rc
+    )
+    target_link_libraries(DownloadManager PRIVATE dm_engine comctl32)
+
+    add_executable(dm-cli
+        src/cli/main.cpp
+        res/app.rc
+    )
+    target_link_libraries(dm-cli PRIVATE dm_engine)
+
+    foreach(app DownloadManager dm-cli)
+        if(MSVC)
+            set_property(TARGET ${app} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+            # O manifesto vem do app.rc.
+            target_link_options(${app} PRIVATE /MANIFEST:NO)
+        else()
+            target_compile_options(${app} PRIVATE -municode)
+            target_link_options(${app} PRIVATE -municode -static -s)
+        endif()
+    endforeach()
+    foreach(lib dm_engine)
+        if(MSVC)
+            set_property(TARGET ${lib} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        endif()
+    endforeach()
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(core_tests tests/core_tests.cpp)
+    target_link_libraries(core_tests PRIVATE dm_core)
+    if(MSVC)
+        set_property(TARGET core_tests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    elseif(WIN32)
+        target_link_options(core_tests PRIVATE -static)
+    else()
+        find_package(Threads REQUIRED)
+        target_link_libraries(core_tests PRIVATE Threads::Threads)
+    endif()
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME core_tests COMMAND core_tests)
+    endif()
 endif()

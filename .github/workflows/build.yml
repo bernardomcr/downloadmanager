@@ -18,8 +18,13 @@ jobs:
       - name: Compilar
         run: cmake --build build --config Release
 
-      - name: Publicar executável
+      - name: Testes
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Publicar executáveis
         uses: actions/upload-artifact@v5
         with:
           name: DownloadManager
-          path: build/Release/DownloadManager.exe
+          path: |
+            build/Release/DownloadManager.exe
+            build/Release/dm-cli.exe

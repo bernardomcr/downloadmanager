@@ -26,7 +26,7 @@
 
 ## Stack técnica
 - **Build**: CMake + vcpkg, MSVC. CI no GitHub Actions (`windows-latest`) gerando o `.exe`.
-- **HTTP/FTP**: libcurl (multi interface) — HTTP/1.1, HTTP/2, proxies, cookies, FTP.
+- **HTTP**: WinHTTP (já vem no Windows: zero dependências, proxy do sistema, TLS do Windows). HTTP/1.1 com conexões TCP separadas, que é o que dá o ganho de velocidade. FTP fica fora por enquanto.
 - **Torrent**: libtorrent-rasterbar (C++, mesma linguagem, padrão da indústria — usado por qBittorrent).
 - **Vídeo**: yt-dlp.exe empacotado + ffmpeg (para juntar áudio/vídeo), atualizado automaticamente.
 - **Banco**: SQLite (fila, histórico, estado de retomada, regras, configurações).
@@ -48,8 +48,8 @@ app.exe (um único processo)
 ```
 
 ## Fases
-0. **Fundação** — repo, CMake/vcpkg, CI Windows, esqueleto da janela.
-1. **Engine HTTP** — multi-conexão com divisão dinâmica de segmentos, pausar/retomar, retomada após crash, verificação de integridade, atualizar link expirado.
+0. **Fundação** ✅ — repo, CMake/vcpkg, CI Windows, esqueleto da janela.
+1. **Engine HTTP** ✅ — multi-conexão com divisão dinâmica de segmentos, pausar/retomar, retomada após travamento, validação por tamanho/ETag, troca de link expirado (no motor; a UI vem na fase 2), `dm-cli`.
 2. **Interface** — janela principal com abas, diálogo "Adicionar", progresso/velocidade/ETA, bandeja, notificações.
 3. **Fila e agendador** — downloads simultâneos, agendamento, limite de banda, desligar ao concluir.
 4. **Navegador** — extensão capturando downloads (cookies/referer) e vídeos.
