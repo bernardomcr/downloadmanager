@@ -13,7 +13,7 @@
 | Navegadores | Firefox, Chrome e Edge (uma extensão WebExtension para os três) |
 | Espelhos múltiplos | Adiado (pós-v1) |
 | Captura | Só o que o usuário clicou para baixar no navegador. Sem monitorar a área de transferência, sem botão/barra flutuante sobre vídeos, sem pop-up "inteligente". Vídeos: pelo botão da extensão na barra do navegador |
-| Instalador | Só instalador (setup.exe). Opção "Iniciar com o Windows" marcada por padrão, desmarcável |
+| Instalador | Só instalador (`DownloadManager-Setup.exe`, próprio, Win32 puro). Instala só para o usuário (sem administrador). Opção "Iniciar com o Windows" marcada por padrão, desmarcável |
 | Iniciar com o Windows | Sim, minimizado na bandeja |
 | Abas | Downloads · Concluídos · Regras · Configurações + botão único **Adicionar** que detecta o tipo do link |
 | Linguagem | C++20 (mesma família do IDM) |
@@ -59,7 +59,7 @@ app.exe (um único processo)
 5. **Vídeos** ✅ — yt-dlp + ffmpeg baixados pelo próprio app na primeira vez (~200 MB, em `%LOCALAPPDATA%\DownloadManager\tools`), yt-dlp atualizado a cada 7 dias. Link de site conhecido (YouTube, Vimeo, X, Instagram, TikTok...) ou qualquer link colado que abra uma página → janela de vídeo: título, duração, qualidade (melhor / até Np / MP3 / áudio original), legendas pt/en, playlist com caixas de seleção. Na lista: pausar/continuar (o yt-dlp aproveita o que já baixou), fila, limite. Streams HLS/DASH com 8 pedaços em paralelo. Extensão: "Baixar o vídeo desta página" (leva os cookies: evita o "confirme que não é um robô" do YouTube) e streams no popup. DRM: detectado e recusado.
 6. ~~**Torrent**~~ — cancelado (decisão do usuário).
 7. **Regras automáticas** ✅ — aba Regras (ver abaixo): ao concluir, o arquivo vai para a subpasta da primeira regra que servir; extrair (tar do Windows), apagar o compactado, abrir arquivo/pasta. Vale também para o que o navegador baixou sozinho (adotado).
-8. **Distribuição** — instalador, auto-update, assinatura.
+8. **Distribuição** ✅ — ver "Distribuição" abaixo. Pendente do lado do usuário: chaves da Mozilla (segredos no GitHub) para assinar a extensão do Firefox; publicação na loja do Edge/Chrome é manual e opcional.
 
 ## Aba Regras
 Lista de regras "SE → ENTÃO", avaliadas na ordem, a primeira que casa vence. Uma caixa liga/desliga tudo; cada regra tem a sua.
@@ -112,8 +112,16 @@ Ordem de tentativa, sem o usuário precisar caçar token:
 | Pausar após X erros / X aulas parciais | 0 (desligado) |
 | Pular arquivos já baixados | Sim |
 
+## Distribuição
+- **Instalador próprio** (`src/setup/`, Win32 puro, ~3 MB) em vez de Inno Setup: o Inno 6.4+ mudou a licença para uso comercial e roda 32 bits; o nosso é x64, testável no Wine e serve também para a atualização silenciosa.
+  - Instala em `%LOCALAPPDATA%\Programs\Download Manager` (sem UAC). Atalho no Menu Iniciar; área de trabalho e "Iniciar com o Windows" marcados por padrão, desmarcáveis.
+  - Fecha o app aberto pedindo com educação (mensagem `kMessageQuit`: salva e sai); um `dm-host.exe` em uso pelo navegador é renomeado para `.old` e trocado.
+  - Entrada em "Apps e recursos"; o desinstalador pergunta se apaga também configurações, lista e ferramentas de vídeo (os arquivos baixados nunca são apagados).
+- **Atualização automática** (pode ser desligada em Configurações): uma vez por dia o app lê o último release do GitHub; se for mais novo, baixa o `DownloadManager-Setup.exe` e confere o SHA-256 publicado junto. Instala sem perguntar só quando ninguém nota: com a janela na bandeja e nada baixando, ao fechar o app ou ao abrir de novo. Um instalador que falhou não é tentado de novo sozinho. Cópia do app que não foi instalada pelo setup não se atualiza sozinha (o "Atualizar agora" abre o instalador normal).
+- **Release**: mudar a versão em `CMakeLists.txt` e `extension/manifest.json`, commit, tag `vX.Y.Z` e push da tag. O CI confere as versões, compila, testa (inclusive instalar e desinstalar) e publica o release com o instalador, o `.sha256`, o zip da extensão e o `.xpi` assinado (se houver as chaves).
+
 ## Extensão do navegador
-- Firefox: assinatura "não listada" na Mozilla (grátis), `.xpi` distribuído pelo instalador.
+- Firefox: assinatura "não listada" na Mozilla (grátis), feita pelo CI nos releases com os segredos `AMO_JWT_ISSUER`/`AMO_JWT_SECRET`. O instalador registra o `.xpi` e o Firefox oferece ativá-la ao abrir.
 - Edge: publicação não listada (grátis).
 - Chrome: pacote pronto para publicar, publicação opcional (taxa única de US$ 5). Até lá, instala em modo desenvolvedor.
 

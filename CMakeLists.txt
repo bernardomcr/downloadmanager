@@ -30,6 +30,7 @@ add_library(dm_core STATIC
     src/core/rules.cpp
     src/core/segments.cpp
     src/core/settings.cpp
+    src/core/update.cpp
     src/core/video.cpp
 )
 target_link_libraries(dm_core PUBLIC dm_options)
@@ -59,7 +60,7 @@ if(WIN32)
         src/util/secure.cpp
         src/util/unicode.cpp
     )
-    target_link_libraries(dm_engine PUBLIC dm_core winhttp crypt32)
+    target_link_libraries(dm_engine PUBLIC dm_core winhttp crypt32 bcrypt)
 
     # Camada do app (lista de downloads, integrações com o Windows, ferramentas de vídeo).
     add_library(dm_app STATIC
@@ -67,6 +68,7 @@ if(WIN32)
         src/app/download_manager.cpp
         src/app/organizer.cpp
         src/app/system.cpp
+        src/app/updater.cpp
         src/app/video_tools.cpp
     )
     target_link_libraries(dm_app PUBLIC dm_engine shell32 ole32 uuid powrprof)
@@ -97,7 +99,56 @@ if(WIN32)
     )
     target_link_libraries(dm-host PRIVATE dm_core)
 
-    foreach(app DownloadManager dm-cli dm-host)
+    # Instalador: o app, a ponte e a extensão vão dentro do setup.exe como recursos RCDATA.
+    # DM_FIREFOX_XPI: .xpi assinado pela Mozilla (o CI passa nos releases), registrado no Firefox.
+    set(DM_FIREFOX_XPI "" CACHE FILEPATH "Extensão do Firefox assinada (.xpi) para incluir no instalador")
+    file(GLOB_RECURSE dm_extension_files RELATIVE ${CMAKE_SOURCE_DIR}/extension CONFIGURE_DEPENDS
+         ${CMAKE_SOURCE_DIR}/extension/*)
+    # Os .exe são copiados para generated/payload: assim o .rc é recompilado quando eles mudam.
+    set(dm_payload_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/payload)
+    add_custom_command(
+        OUTPUT ${dm_payload_dir}/DownloadManager.exe ${dm_payload_dir}/dm-host.exe
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${dm_payload_dir}
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:DownloadManager> $<TARGET_FILE:dm-host> ${dm_payload_dir}
+        DEPENDS DownloadManager dm-host
+        VERBATIM)
+    set(dm_payload_names "DownloadManager.exe" "dm-host.exe")
+    set(dm_payload_sources ${dm_payload_dir}/DownloadManager.exe ${dm_payload_dir}/dm-host.exe)
+    foreach(file ${dm_extension_files})
+        list(APPEND dm_payload_names "extension/${file}")
+        list(APPEND dm_payload_sources "${CMAKE_SOURCE_DIR}/extension/${file}")
+    endforeach()
+    if(DM_FIREFOX_XPI)
+        list(APPEND dm_payload_names "download-manager.xpi")
+        list(APPEND dm_payload_sources "${DM_FIREFOX_XPI}")
+    endif()
+    set(dm_payload_rc "")
+    set(dm_payload_list "")
+    set(dm_payload_id 2000)
+    foreach(name source IN ZIP_LISTS dm_payload_names dm_payload_sources)
+        string(APPEND dm_payload_rc "${dm_payload_id} RCDATA \"${source}\"\n")
+        string(APPEND dm_payload_list "    {${dm_payload_id}, L\"${name}\"},\n")
+        math(EXPR dm_payload_id "${dm_payload_id} + 1")
+    endforeach()
+    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/generated/payload.rc.in "${dm_payload_rc}")
+    configure_file(${CMAKE_CURRENT_BINARY_DIR}/generated/payload.rc.in ${CMAKE_CURRENT_BINARY_DIR}/generated/payload.rc
+                   COPYONLY)
+    file(CONFIGURE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/payload.h CONTENT
+"#pragma once\n// Gerado pelo CMake: arquivos dentro do instalador (id do recurso RCDATA, caminho na pasta do app).\nstruct PayloadFile {\n    int id;\n    const wchar_t* path;\n};\ninline constexpr PayloadFile kPayload[] = {\n${dm_payload_list}};\n")
+    set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/generated/payload.rc PROPERTIES
+        OBJECT_DEPENDS "${dm_payload_sources}")
+
+    add_executable(DownloadManager-Setup WIN32
+        src/setup/main.cpp
+        res/setup.rc
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/payload.rc
+        ${dm_payload_dir}/DownloadManager.exe
+        ${dm_payload_dir}/dm-host.exe
+    )
+    target_include_directories(DownloadManager-Setup PRIVATE res)
+    target_link_libraries(DownloadManager-Setup PRIVATE dm_app comctl32)
+
+    foreach(app DownloadManager DownloadManager-Setup dm-cli dm-host)
         if(MSVC)
             set_property(TARGET ${app} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
             # O manifesto vem do app.rc.

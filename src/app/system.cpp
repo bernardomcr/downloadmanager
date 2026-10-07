@@ -31,21 +31,38 @@ std::wstring defaultDownloadFolder() {
     return folder;
 }
 
-void setStartWithWindows(bool enabled) {
+void setStartWithWindows(bool enabled, const std::wstring& exePath) {
     constexpr const wchar_t* kRunKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     constexpr const wchar_t* kValue = L"DownloadManager";
     HKEY key = nullptr;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKey, 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) return;
     if (enabled) {
-        wchar_t exe[MAX_PATH * 4];
-        const DWORD length = GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
-        const std::wstring command = L"\"" + std::wstring(exe, length) + L"\" --tray";
+        std::wstring path = exePath;
+        if (path.empty()) {
+            wchar_t exe[MAX_PATH * 4];
+            path.assign(exe, GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe))));
+        }
+        const std::wstring command = L"\"" + path + L"\" --tray";
         RegSetValueExW(key, kValue, 0, REG_SZ, reinterpret_cast<const BYTE*>(command.c_str()),
                        static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
     } else {
         RegDeleteValueW(key, kValue);
     }
     RegCloseKey(key);
+}
+
+bool runningFromInstallation() {
+    wchar_t location[MAX_PATH * 4];
+    DWORD size = sizeof(location);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\DownloadManager",
+                     L"InstallLocation", RRF_RT_REG_SZ, nullptr, location, &size) != ERROR_SUCCESS) {
+        return false;
+    }
+    wchar_t exe[MAX_PATH * 4];
+    const DWORD length = GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+    std::wstring directory(exe, length);
+    directory.resize(directory.find_last_of(L'\\') == std::wstring::npos ? 0 : directory.find_last_of(L'\\'));
+    return _wcsicmp(directory.c_str(), location) == 0;
 }
 
 void openFile(const std::wstring& path) {

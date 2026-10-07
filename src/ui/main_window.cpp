@@ -11,6 +11,7 @@
 #include "i18n/strings.h"
 #include "resource.h"
 #include "core/video.h"
+#include "version.h"
 #include "ui/dialogs.h"
 #include "ui/video_dialog.h"
 #include "core/http_headers.h"
@@ -63,6 +64,13 @@ bool MainWindow::create(HINSTANCE instance, int showCommand, bool startHidden) {
     app::registerBrowserIntegration(dataDirectory);
     loadSettings();
     applyLanguage();
+    updater_ = std::make_unique<app::Updater>(dataDirectory);
+    installedCopy_ = app::runningFromInstallation();
+    // Versão nova baixada antes: instala antes de abrir (uma tentativa só, se o instalador falhar).
+    if (settings_.autoUpdate && installedCopy_ && updater_->ready() && !updater_->alreadyAttempted() &&
+        installUpdate(startHidden ? L"/bandeja" : L"/abrir")) {
+        return false;
+    }
     manager_ = std::make_unique<app::DownloadManager>(dm::joinPath(dataDirectory, L"downloads.dat"));
     videoTools_ = std::make_unique<app::VideoTools>(dataDirectory);
     manager_->setVideoTools(videoTools_.get());
@@ -232,6 +240,11 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             return TRUE;
         }
 
+        case app::kMessageQuit:
+            quitByInstaller_ = true;
+            exitApp();
+            return 0;
+
         case kProcessBrowserRequests:
             processAdoptions();
             processBrowserRequests();
@@ -398,6 +411,14 @@ void MainWindow::createControls() {
     rulesPage_.setRules(rules_, settings_.rulesEnabled);
 
     settingsPage_.onChanged = [this](const dm::Settings& settings) { onSettingsChanged(settings); };
+    settingsPage_.onUpdateButton = [this] {
+        if (updater_->ready()) {
+            if (installUpdate(L"/abrir")) exitApp();
+        } else {
+            updater_->checkIfDue(true);
+            refreshUpdateStatus();
+        }
+    };
     pages_[kSettings] = settingsPage_.create(hwnd_);
     settingsPage_.setSettings(settings_);
     updateTabTitles();
@@ -467,6 +488,8 @@ void MainWindow::refreshLists() {
 void MainWindow::onTimer() {
     if (!pendingAdoptions_.empty()) processAdoptions();
     const bool changed = manager_->tick();
+    updateTick();
+    if (exiting_) return;
 
     const bool working = manager_->runningCount() > 0;
     if (settings_.keepAwake && working != keepingAwake_) {
@@ -487,6 +510,49 @@ void MainWindow::onTimer() {
         downloadsList_.refresh();
     }
     checkWhenDone();
+}
+
+bool MainWindow::installUpdate(const wchar_t* relaunch) {
+    if (updateLaunched_) return true;
+    // Cópia solta (não instalada pelo setup): abre a janela do instalador em vez de instalar calado.
+    updateLaunched_ = updater_->launchInstaller(relaunch, installedCopy_);
+    return updateLaunched_;
+}
+
+void MainWindow::refreshUpdateStatus() {
+    const app::Updater::State state = updater_->state();
+    lastUpdateState_ = static_cast<int>(state);
+    wchar_t text[512];
+    std::swprintf(text, 512, tr(Str::UpdateVersion), dm::toWide(DM_VERSION_STRING).c_str());
+    std::wstring status = text;
+    const std::wstring version = updater_->availableVersion();
+    switch (state) {
+        case app::Updater::State::Checking: status += L" · " + std::wstring(tr(Str::UpdateChecking)); break;
+        case app::Updater::State::Current: status += L" · " + std::wstring(tr(Str::UpdateCurrent)); break;
+        case app::Updater::State::Failed: status += L" · " + std::wstring(tr(Str::UpdateFailed)); break;
+        case app::Updater::State::Downloading:
+            std::swprintf(text, 512, tr(Str::UpdateDownloading), version.c_str());
+            status += L" · " + std::wstring(text);
+            break;
+        case app::Updater::State::Ready:
+            std::swprintf(text, 512, tr(Str::UpdateReady), version.c_str());
+            status += L" · " + std::wstring(text);
+            break;
+        default: break;
+    }
+    settingsPage_.setUpdateStatus(status, state == app::Updater::State::Ready);
+}
+
+void MainWindow::updateTick() {
+    // Primeira procura 1 minuto depois de abrir; depois o Updater só procura uma vez por dia.
+    if (settings_.autoUpdate && ++updateTicks_ % (60000 / kRefreshMilliseconds) == 0) updater_->checkIfDue();
+    if (static_cast<int>(updater_->state()) != lastUpdateState_) refreshUpdateStatus();
+
+    // Instala sozinho só quando ninguém nota: janela na bandeja, nada baixando, nenhum diálogo aberto.
+    if (settings_.autoUpdate && installedCopy_ && updater_->ready() && !updater_->alreadyAttempted() &&
+        !IsWindowVisible(hwnd_) && manager_->idle() && !showingBrowserDialog_ && GetLastActivePopup(hwnd_) == hwnd_ && installUpdate(L"/bandeja")) {
+        exitApp();
+    }
 }
 
 void MainWindow::checkWhenDone() {
@@ -774,6 +840,11 @@ void MainWindow::runWhenDoneAction() {
 }
 
 void MainWindow::exitApp() {
+    // Fechando o app: se houver versão nova baixada, o instalador troca os arquivos sem reabrir.
+    if (!quitByInstaller_ && settings_.autoUpdate && installedCopy_ && updater_->ready() &&
+        !updater_->alreadyAttempted()) {
+        installUpdate(nullptr);
+    }
     exiting_ = true;
     DestroyWindow(hwnd_);
 }

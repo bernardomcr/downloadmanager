@@ -44,7 +44,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     const bool startHidden = hasArgument(L"--tray");
 
     ui::MainWindow window;
-    if (!window.create(instance, showCommand, startHidden)) return 1;
+    if (!window.create(instance, showCommand, startHidden)) return window.exitingForUpdate() ? 0 : 1;
 
     MSG message;
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {

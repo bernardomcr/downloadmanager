@@ -19,6 +19,7 @@
 #include "core/rules.h"
 #include "core/segments.h"
 #include "core/settings.h"
+#include "core/update.h"
 #include "core/video.h"
 
 namespace {
@@ -223,6 +224,7 @@ void testSettings() {
     settings.scheduleEnd = 6 * 60 + 30;
     settings.whenDone = dm::WhenDone::Shutdown;
     settings.rulesEnabled = false;
+    settings.autoUpdate = false;
     const auto parsed = dm::parseSettings(dm::serializeSettings(settings));
     CHECK(parsed.downloadFolder == "D:\\Baixados" && parsed.connections == 16);
     CHECK(parsed.language == dm::LanguageSetting::English && !parsed.closeToTray);
@@ -231,6 +233,7 @@ void testSettings() {
     CHECK(parsed.scheduleStart == 23 * 60 && parsed.scheduleEnd == 6 * 60 + 30);
     CHECK(parsed.whenDone == dm::WhenDone::Nothing);  // não é salvo
     CHECK(!parsed.rulesEnabled && dm::parseSettings("").rulesEnabled);
+    CHECK(!parsed.autoUpdate && dm::parseSettings("").autoUpdate);
     CHECK(dm::parseSettings("connections=500\n").connections == 32);
     CHECK(dm::parseSettings("").connections == 8);
 }
@@ -482,6 +485,47 @@ void testRules() {
 
 }  // namespace
 
+void testUpdate() {
+    CHECK(dm::parseVersion("v1.2.3") == (dm::Version{1, 2, 3}));
+    CHECK(dm::parseVersion("0.10.0") == (dm::Version{0, 10, 0}));
+    CHECK(!dm::parseVersion("1.2") && !dm::parseVersion("1.2.3-beta") && !dm::parseVersion("") &&
+          !dm::parseVersion("v1..3") && !dm::parseVersion("1.2.3.4"));
+    CHECK(*dm::parseVersion("0.10.0") > *dm::parseVersion("0.9.9"));
+    CHECK(dm::formatVersion({2, 0, 11}) == "2.0.11");
+
+    const std::string release = R"({"tag_name":"v0.2.0","draft":false,"prerelease":false,"assets":[
+        {"name":"extensao-download-manager.zip","browser_download_url":"https://github.com/a/b/releases/download/v0.2.0/extensao-download-manager.zip"},
+        {"name":"DownloadManager-Setup.exe","browser_download_url":"https://github.com/a/b/releases/download/v0.2.0/DownloadManager-Setup.exe"},
+        {"name":"DownloadManager-Setup.exe.sha256","browser_download_url":"https://github.com/a/b/releases/download/v0.2.0/DownloadManager-Setup.exe.sha256"}]})";
+    const auto info = dm::parseLatestRelease(release);
+    CHECK(info && info->version == (dm::Version{0, 2, 0}));
+    CHECK(info && info->setupUrl.find("/DownloadManager-Setup.exe") != std::string::npos &&
+          info->checksumUrl.ends_with(".sha256"));
+    // Sem o .sha256, rascunho, tag estranha ou link fora do GitHub: ignora.
+    std::string noChecksum = release;
+    noChecksum.replace(noChecksum.find("Setup.exe.sha256\""), 17, "Setup.txt\"");
+    CHECK(!dm::parseLatestRelease(noChecksum));
+    std::string draft = release;
+    draft.replace(draft.find("\"draft\":false"), 13, "\"draft\":true");
+    CHECK(!dm::parseLatestRelease(draft));
+    std::string badTag = release;
+    badTag.replace(badTag.find("v0.2.0"), 6, "latest");
+    CHECK(!dm::parseLatestRelease(badTag));
+    std::string otherHost = release;
+    for (size_t at; (at = otherHost.find("https://github.com/")) != std::string::npos;) {
+        otherHost.replace(at, 19, "http://127.0.0.1/");
+    }
+    CHECK(!dm::parseLatestRelease(otherHost) && dm::parseLatestRelease(otherHost, true));
+    CHECK(!dm::parseLatestRelease("not json"));
+
+    const std::string hash(64, 'A');
+    CHECK(dm::parseChecksumFile(hash + "  DownloadManager-Setup.exe\n") == std::string(64, 'a'));
+    CHECK(dm::parseChecksumFile(hash) == std::string(64, 'a'));
+    CHECK(dm::parseChecksumFile("\n" + hash + "\r\n") == std::string(64, 'a'));
+    CHECK(dm::parseChecksumFile(hash.substr(1)).empty() && dm::parseChecksumFile(hash + "f").empty() &&
+          dm::parseChecksumFile(std::string(63, 'a') + "g").empty());
+}
+
 int main() {
     testContentRange();
     testFileNames();
@@ -500,6 +544,7 @@ int main() {
     testVideo();
     testCommandLine();
     testRules();
+    testUpdate();
 
     if (g_failures == 0) std::printf("Todos os testes passaram.\n");
     return g_failures == 0 ? 0 : 1;

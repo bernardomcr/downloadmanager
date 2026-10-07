@@ -1,0 +1,48 @@
+#include <windows.h>
+#include <commctrl.h>
+#include "resource.h"
+#include "version.h"
+
+1 RT_MANIFEST "app.manifest"
+
+IDI_APP ICON "app.ico"
+
+// Textos definidos em tempo de execução (i18n).
+IDD_SETUP DIALOGEX 0, 0, 260, 132
+STYLE DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    ICON            IDI_APP, IDC_SETUP_ICON, 10, 10, 20, 20
+    LTEXT           "", IDC_SETUP_TITLE, 40, 14, 210, 12
+    LTEXT           "", IDC_SETUP_FOLDER_LABEL, 10, 40, 240, 9
+    LTEXT           "", IDC_SETUP_FOLDER, 10, 50, 240, 9, SS_PATHELLIPSIS
+    AUTOCHECKBOX    "", IDC_SETUP_STARTUP, 10, 68, 240, 10
+    AUTOCHECKBOX    "", IDC_SETUP_DESKTOP, 10, 82, 240, 10
+    CONTROL         "", IDC_SETUP_PROGRESS, PROGRESS_CLASSW, PBS_MARQUEE, 10, 98, 240, 8
+    DEFPUSHBUTTON   "", IDOK, 144, 112, 52, 14
+    PUSHBUTTON      "", IDCANCEL, 199, 112, 52, 14
+END
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION DM_VERSION_MAJOR, DM_VERSION_MINOR, DM_VERSION_PATCH, 0
+PRODUCTVERSION DM_VERSION_MAJOR, DM_VERSION_MINOR, DM_VERSION_PATCH, 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041604B0"
+        BEGIN
+            VALUE "CompanyName", "bernardomcr"
+            VALUE "FileDescription", "Instalador do Download Manager"
+            VALUE "FileVersion", DM_VERSION_STRING
+            VALUE "ProductName", "Download Manager"
+            VALUE "ProductVersion", DM_VERSION_STRING
+            VALUE "OriginalFilename", "DownloadManager-Setup.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0416, 0x04B0
+    END
+END

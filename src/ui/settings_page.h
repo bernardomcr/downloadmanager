@@ -18,7 +18,11 @@ public:
     // Reaplica os textos depois de trocar o idioma.
     void applyTexts();
 
+    // Linha da versão/atualização e o texto do botão ("Procurar agora" ou "Atualizar agora").
+    void setUpdateStatus(const std::wstring& text, bool updateReady);
+
     std::function<void(const dm::Settings&)> onChanged;
+    std::function<void()> onUpdateButton;
 
 private:
     static INT_PTR CALLBACK dialogProc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam);
@@ -31,6 +35,7 @@ private:
     HWND dialog_ = nullptr;
     dm::Settings settings_;
     bool filling_ = false;
+    bool updateReady_ = false;
 };
 
 }  // namespace ui

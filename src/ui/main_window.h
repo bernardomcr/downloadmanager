@@ -9,6 +9,7 @@
 
 #include "app/download_manager.h"
 #include "app/ipc.h"
+#include "app/updater.h"
 #include "app/video_tools.h"
 #include "core/browser_request.h"
 #include "core/settings.h"
@@ -25,7 +26,9 @@ public:
     static constexpr const wchar_t* kClassName = app::kMainWindowClass;
 
     // startHidden: aberto pelo Windows ao iniciar a sessão; fica só na bandeja.
+    // false também quando abriu o instalador de uma atualização (aí exitingForUpdate() é true).
     bool create(HINSTANCE instance, int showCommand, bool startHidden);
+    bool exitingForUpdate() const { return updateLaunched_; }
     // Teclado nos controles da aba Configurações (Tab, setas). Devolve true se a mensagem foi tratada.
     bool preTranslate(MSG& message);
 
@@ -70,6 +73,10 @@ private:
     void onTrayMessage(WPARAM wParam, LPARAM lParam);
     void showWindowFromTray();
     void exitApp();
+    // Atualização automática: procura, mostra o estado em Configurações e instala na hora certa.
+    void updateTick();
+    void refreshUpdateStatus();
+    bool installUpdate(const wchar_t* relaunch);
     std::wstring downloadFolder() const;
     // Download novo: marca para as regras organizarem se foi para a pasta padrão.
     void markOrganize(uint64_t id, const std::wstring& folder);
@@ -97,6 +104,12 @@ private:
     dm::Settings settings_;
     std::unique_ptr<app::DownloadManager> manager_;
     std::unique_ptr<app::VideoTools> videoTools_;
+    std::unique_ptr<app::Updater> updater_;
+    bool installedCopy_ = false;
+    bool updateLaunched_ = false;
+    bool quitByInstaller_ = false;
+    int updateTicks_ = 0;
+    int lastUpdateState_ = -1;
     DownloadListView downloadsList_;
     DownloadListView completedList_;
     SettingsPage settingsPage_;

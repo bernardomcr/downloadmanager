@@ -13,6 +13,9 @@ inline constexpr ULONG_PTR kCopyDataRequestStatus = 0x444D5354;   // 'DMST'
 // lpData: mensagem "adopt" em JSON: arquivo que o navegador terminou de baixar.
 inline constexpr ULONG_PTR kCopyDataAdopt = 0x444D414F;           // 'DMAO'
 
+// Postada pelo instalador/atualizador: o app salva tudo e fecha (sem perguntar nada).
+inline constexpr UINT kMessageQuit = WM_APP + 40;
+
 enum BrowserRequestStatus : LRESULT {
     kStatusUnknown = 0,   // token desconhecido: o navegador assume
     kStatusWaiting = 1,   // diálogo aberto ou conectando

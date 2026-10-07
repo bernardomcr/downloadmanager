@@ -15,7 +15,12 @@ std::wstring dataDirectory();
 std::wstring defaultDownloadFolder();
 
 // Liga/desliga a entrada em HKCU\...\Run que abre o app minimizado na bandeja ao entrar no Windows.
-void setStartWithWindows(bool enabled);
+// exePath vazio: o próprio executável (o instalador passa o caminho do app instalado).
+void setStartWithWindows(bool enabled, const std::wstring& exePath = {});
+
+// O app em execução é o instalado pelo setup (pasta registrada em "Apps e recursos")?
+// Só a cópia instalada se atualiza sozinha; uma cópia solta não vira outra instalação sem perguntar.
+bool runningFromInstallation();
 
 void openFile(const std::wstring& path);
 // Abre o Explorer com o arquivo selecionado (ou a pasta, se o arquivo não existir).

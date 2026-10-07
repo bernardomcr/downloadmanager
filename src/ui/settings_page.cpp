@@ -35,6 +35,8 @@ void SettingsPage::applyTexts() {
     SetDlgItemTextW(dialog_, IDC_SET_KEEP_AWAKE, tr(Str::SettingsKeepAwake));
     SetDlgItemTextW(dialog_, IDC_SET_BROWSER_ASK, tr(Str::SettingsBrowserAsk));
     SetDlgItemTextW(dialog_, IDC_SET_ADOPT, tr(Str::SettingsAdopt));
+    SetDlgItemTextW(dialog_, IDC_SET_AUTO_UPDATE, tr(Str::SettingsAutoUpdate));
+    SetDlgItemTextW(dialog_, IDC_SET_UPDATE, tr(updateReady_ ? Str::UpdateNow : Str::UpdateCheckNow));
     SetDlgItemTextW(dialog_, IDC_SET_MAX_DOWNLOADS_LABEL, tr(Str::SettingsMaxDownloads));
     SetDlgItemTextW(dialog_, IDC_SET_SPEED_LIMIT_LABEL, tr(Str::SettingsSpeedLimit));
     SetDlgItemTextW(dialog_, IDC_SET_SCHEDULE, tr(Str::SettingsSchedule));
@@ -69,6 +71,7 @@ void SettingsPage::fillControls() {
     CheckDlgButton(dialog_, IDC_SET_KEEP_AWAKE, settings_.keepAwake ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog_, IDC_SET_BROWSER_ASK, settings_.askForBrowserDownloads ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog_, IDC_SET_ADOPT, settings_.adoptBrowserDownloads ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(dialog_, IDC_SET_AUTO_UPDATE, settings_.autoUpdate ? BST_CHECKED : BST_UNCHECKED);
 
     SendDlgItemMessageW(dialog_, IDC_SET_MAX_DOWNLOADS_SPIN, UDM_SETRANGE32, 1, 10);
     SendDlgItemMessageW(dialog_, IDC_SET_MAX_DOWNLOADS_SPIN, UDM_SETPOS32, 0, settings_.maxDownloads);
@@ -97,6 +100,12 @@ void SettingsPage::setTime(int controlId, int minutes) {
     time.wSecond = 0;
     time.wMilliseconds = 0;
     SendDlgItemMessageW(dialog_, controlId, DTM_SETSYSTEMTIME, GDT_VALID, reinterpret_cast<LPARAM>(&time));
+}
+
+void SettingsPage::setUpdateStatus(const std::wstring& text, bool updateReady) {
+    updateReady_ = updateReady;
+    SetDlgItemTextW(dialog_, IDC_SET_VERSION, text.c_str());
+    SetDlgItemTextW(dialog_, IDC_SET_UPDATE, tr(updateReady ? Str::UpdateNow : Str::UpdateCheckNow));
 }
 
 int SettingsPage::readTime(int controlId) const {
@@ -197,6 +206,13 @@ INT_PTR SettingsPage::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
         case IDC_SET_BROWSER_ASK:
             settings_.askForBrowserDownloads = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
             notify();
+            return TRUE;
+        case IDC_SET_AUTO_UPDATE:
+            settings_.autoUpdate = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
+            notify();
+            return TRUE;
+        case IDC_SET_UPDATE:
+            if (onUpdateButton) onUpdateButton();
             return TRUE;
         case IDC_SET_MAX_DOWNLOADS:
             if (code == EN_CHANGE) {

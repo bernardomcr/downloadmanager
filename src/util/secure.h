@@ -10,4 +10,7 @@ namespace dm {
 std::string protectForCurrentUser(const std::string& plain);
 std::optional<std::string> unprotectForCurrentUser(const std::string& encoded);
 
+// SHA-256 do arquivo em hexadecimal minúsculo; vazio se não conseguir ler.
+std::string sha256OfFile(const std::wstring& path);
+
 }  // namespace dm

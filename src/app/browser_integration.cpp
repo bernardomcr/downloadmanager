@@ -54,4 +54,18 @@ void registerBrowserIntegration(const std::wstring& dataDirectory) {
     }
 }
 
+void unregisterBrowserIntegration() {
+    const std::wstring name = kNativeHostName;
+    for (const wchar_t* browser : {L"Software\\Mozilla", L"Software\\Google\\Chrome", L"Software\\Microsoft\\Edge",
+                                   L"Software\\BraveSoftware\\Brave-Browser", L"Software\\Chromium"}) {
+        RegDeleteKeyW(HKEY_CURRENT_USER, (std::wstring(browser) + L"\\NativeMessagingHosts\\" + name).c_str());
+    }
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Mozilla\\Firefox\\Extensions", 0, KEY_SET_VALUE, &key) ==
+        ERROR_SUCCESS) {
+        RegDeleteValueW(key, kFirefoxExtensionId);
+        RegCloseKey(key);
+    }
+}
+
 }  // namespace app
