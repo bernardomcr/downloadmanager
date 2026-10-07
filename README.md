@@ -21,6 +21,8 @@ A extensão manda para o app os downloads que você inicia no navegador e organi
 dm-cli <link> [pasta] [--conexoes N] [--nome arquivo]
 ```
 
+Vídeos (yt-dlp): `dm-cli --video <link> [pasta] [--qualidade best|1080|720|mp3|audio]`. `dm-cli --preparar-videos <pasta-de-dados>` baixa o yt-dlp e o ffmpeg (o app faz isso sozinho na primeira vez).
+
 Ctrl+C pausa e salva o progresso; rodar o mesmo comando de novo continua de onde parou (também depois de travamento ou reinício do PC).
 
 ## Compilar

@@ -7,17 +7,22 @@
 #include <vector>
 
 #include "core/download_list.h"
+#include "core/video.h"
 #include "engine/download_task.h"
+#include "engine/task.h"
 
 namespace app {
+
+class VideoTools;
 
 // Um item da lista. `record` é o que fica salvo; `task` só existe enquanto o download está rodando.
 struct DownloadItem {
     dm::DownloadRecord record;
-    std::unique_ptr<dm::DownloadTask> task;
+    std::unique_ptr<dm::Task> task;
     dm::DownloadProgress live;  // último progresso lido da tarefa
     bool forced = false;               // "Começar agora": ignora o limite da fila e o agendador
     bool pausedBySchedule = false;     // pausado pelo agendador: volta para a fila, não para "Pausado"
+    bool rejectWebPages = false;       // link colado à mão: se for uma página, vira análise de vídeo
 
     bool running() const {
         return task && (live.status == dm::DownloadStatus::Connecting ||
@@ -46,7 +51,15 @@ public:
     // headers: cabeçalhos extras (Cookie, Referer) do navegador; guardados criptografados.
     uint64_t add(const std::string& url, const std::wstring& directory, const std::wstring& fileName,
                  int connections, const std::vector<std::pair<std::string, std::string>>& headers = {},
-                 const std::string& userAgent = {});
+                 const std::string& userAgent = {}, bool rejectWebPages = false);
+    // Vídeo (ou item de playlist) para o yt-dlp. title vira o nome do arquivo (vazio: título do site).
+    uint64_t addVideo(const std::string& url, const std::wstring& directory, const std::wstring& title,
+                      const dm::VideoFormat& format, bool subtitles,
+                      const std::vector<std::pair<std::string, std::string>>& headers = {},
+                      const std::string& userAgent = {});
+    // Sem as ferramentas prontas, vídeos esperam na fila.
+    void setVideoTools(VideoTools* tools) { videoTools_ = tools; }
+
     // Arquivo que o navegador baixou e o app organizou: entra direto em Concluídos.
     uint64_t addCompleted(const std::string& url, const std::wstring& filePath, int64_t size);
     // Continuar: começa se houver vaga (e o agendador deixar); senão entra na fila.
@@ -75,6 +88,8 @@ public:
     const std::vector<std::unique_ptr<DownloadItem>>& items() const { return items_; }
 
     std::function<void(const DownloadItem&)> onCompleted;
+    // Um link colado à mão era uma página web: o item é removido e a interface oferece a análise de vídeo.
+    std::function<void(const dm::DownloadRecord&)> onWebPage;
 
 private:
     void startTask(DownloadItem& item);
@@ -91,6 +106,7 @@ private:
     bool scheduleEnabled_ = false;
     int scheduleStart_ = 0;
     int scheduleEnd_ = 0;
+    VideoTools* videoTools_ = nullptr;
     std::shared_ptr<dm::RateLimiter> globalLimiter_ = std::make_shared<dm::RateLimiter>();
 };
 

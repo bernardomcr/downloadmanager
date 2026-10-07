@@ -162,6 +162,14 @@ void DownloadTask::run() {
     }
 
     const HttpResponse& response = request->response();
+    if (options_.rejectWebPages && response.contentType.rfind("text/html", 0) == 0 &&
+        response.contentDisposition.find("attachment") == std::string::npos) {
+        unregisterRequest(request.get());
+        fail(DownloadError::WebPage, 0);
+        std::lock_guard lock(mutex_);
+        status_ = DownloadStatus::Failed;
+        return;
+    }
     const bool ranged = response.status == 206 && response.contentRange && response.contentRange->first == 0 &&
                         response.contentRange->total > 0;
     const int64_t total = ranged ? response.contentRange->total : response.contentLength;

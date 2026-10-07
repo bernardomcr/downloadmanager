@@ -8,7 +8,7 @@ namespace dm {
 
 // Pedido de download vindo da extensão do navegador. Strings em UTF-8.
 struct BrowserRequest {
-    enum class Source { Capture, Link, Media };
+    enum class Source { Capture, Link, Media, Page };  // Page: "baixar o vídeo desta página"
 
     std::string url;
     std::string fileName;   // nome sugerido pelo navegador (pode ser vazio)

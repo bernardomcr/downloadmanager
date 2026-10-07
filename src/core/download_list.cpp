@@ -61,6 +61,11 @@ std::string serializeDownloadList(const std::vector<DownloadRecord>& records) {
         out << "limit " << record.speedLimit << '\n';
         if (!record.protectedHeaders.empty()) out << "headers " << singleLine(record.protectedHeaders) << '\n';
         if (!record.userAgent.empty()) out << "agent " << singleLine(record.userAgent) << '\n';
+        if (record.isVideo) {
+            out << "video " << singleLine(record.videoFormat.empty() ? "best" : record.videoFormat) << '\n';
+            out << "subtitles " << (record.subtitles ? 1 : 0) << '\n';
+        }
+        if (!record.errorText.empty()) out << "error-text " << singleLine(record.errorText) << '\n';
         out << "error " << record.errorCode << ' ' << record.errorDetail << '\n';
     }
     return out.str();
@@ -108,6 +113,11 @@ std::vector<DownloadRecord> parseDownloadList(const std::string& text) {
         else if (key == "limit") parseNumber(value, current.speedLimit);
         else if (key == "headers") current.protectedHeaders = value;
         else if (key == "agent") current.userAgent = value;
+        else if (key == "video") {
+            current.isVideo = true;
+            current.videoFormat = value;
+        } else if (key == "subtitles") current.subtitles = value == "1";
+        else if (key == "error-text") current.errorText = value;
         else if (key == "error") {
             std::istringstream numbers(value);
             numbers >> current.errorCode >> current.errorDetail;

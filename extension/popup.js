@@ -20,14 +20,23 @@ async function init() {
 
   const [tab] = await api.tabs.query({ active: true, currentWindow: true });
   const media = tab ? await api.runtime.sendMessage({ type: "media", tabId: tab.id }) : [];
-  const files = media.filter((item) => item.kind === "file");
   const list = document.getElementById("media");
 
-  for (const item of files) {
+  // A página inteira vai para o app, que analisa com o yt-dlp (YouTube, Vimeo, redes sociais...).
+  const pageButton = document.getElementById("page-video");
+  pageButton.disabled = !tab || !DMLib.isWebUrl(tab.url || "");
+  pageButton.addEventListener("click", async () => {
+    pageButton.disabled = true;
+    const reply = await api.runtime.sendMessage({ type: "download", url: tab.url, pageUrl: tab.url, source: "page" });
+    if (reply && reply.ok) window.close();
+    else pageButton.textContent = message("popupFailed");
+  });
+
+  for (const item of media) {
     const row = document.createElement("li");
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = item.name;
+    name.textContent = item.kind === "stream" ? `${message("popupStream")} · ${tab.title || item.name}` : item.name;
     name.title = item.url;
     const size = document.createElement("span");
     size.className = "size";
@@ -36,15 +45,20 @@ async function init() {
     button.textContent = message("popupDownload");
     button.addEventListener("click", async () => {
       button.disabled = true;
-      const reply = await api.runtime.sendMessage({ type: "download", url: item.url, pageUrl: tab.url || "" });
+      const reply = await api.runtime.sendMessage({
+        type: "download",
+        url: item.url,
+        pageUrl: tab.url || "",
+        // Stream (.m3u8/.mpd) não tem nome útil: usa o título da aba.
+        title: item.kind === "stream" ? tab.title || "" : "",
+      });
       button.textContent = message(reply && reply.ok ? "popupSent" : "popupFailed");
     });
     row.append(name, size, button);
     list.append(row);
   }
 
-  document.getElementById("empty").hidden = files.length > 0;
-  document.getElementById("streams").hidden = !media.some((item) => item.kind === "stream");
+  document.getElementById("empty").hidden = media.length > 0;
 }
 
 init();

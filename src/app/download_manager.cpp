@@ -5,6 +5,9 @@
 #include <algorithm>
 
 #include "app/system.h"
+#include "app/video_tools.h"
+#include "core/http_headers.h"
+#include "engine/video_task.h"
 #include "core/rate_limiter.h"
 #include "util/file_io.h"
 #include "util/secure.h"
@@ -119,9 +122,10 @@ bool DownloadManager::advanceQueue() {
     }
 
     int running = runningCount();
+    const bool videoReady = videoTools_ && videoTools_->ready();
     for (auto& item : items_) {
         if (running >= maxRunning_) break;
-        if (!item->queued()) continue;
+        if (!item->queued() || (item->record.isVideo && !videoReady)) continue;
         startTask(*item);
         ++running;
         changed = true;
@@ -139,7 +143,7 @@ void DownloadManager::save() {
 
 uint64_t DownloadManager::add(const std::string& url, const std::wstring& directory, const std::wstring& fileName,
                               int connections, const std::vector<std::pair<std::string, std::string>>& headers,
-                              const std::string& userAgent) {
+                              const std::string& userAgent, bool rejectWebPages) {
     auto item = std::make_unique<DownloadItem>();
     item->record.id = nextId_++;
     item->record.url = url;
@@ -149,8 +153,32 @@ uint64_t DownloadManager::add(const std::string& url, const std::wstring& direct
     item->record.addedAt = unixNow();
     item->record.protectedHeaders = protectHeaders(headers);
     item->record.userAgent = userAgent;
+    item->rejectWebPages = rejectWebPages;
     const uint64_t id = item->record.id;
     item->record.state = dm::RecordState::Queued;
+    items_.push_back(std::move(item));
+    advanceQueue();
+    save();
+    return id;
+}
+
+uint64_t DownloadManager::addVideo(const std::string& url, const std::wstring& directory, const std::wstring& title,
+                                   const dm::VideoFormat& format, bool subtitles,
+                                   const std::vector<std::pair<std::string, std::string>>& headers,
+                                   const std::string& userAgent) {
+    auto item = std::make_unique<DownloadItem>();
+    item->record.id = nextId_++;
+    item->record.url = url;
+    item->record.directory = dm::toUtf8(directory);
+    item->record.fileName = title.empty() ? std::string{} : dm::sanitizeFileName(dm::toUtf8(title));
+    item->record.isVideo = true;
+    item->record.videoFormat = format.serialize();
+    item->record.subtitles = subtitles;
+    item->record.addedAt = unixNow();
+    item->record.protectedHeaders = protectHeaders(headers);
+    item->record.userAgent = userAgent;
+    item->record.state = dm::RecordState::Queued;
+    const uint64_t id = item->record.id;
     items_.push_back(std::move(item));
     advanceQueue();
     save();
@@ -252,6 +280,8 @@ void DownloadManager::shutdown() {
 
 bool DownloadManager::tick() {
     bool changed = false;
+    // Links que eram páginas web: saem da lista e viram análise de vídeo (fora do laço, que não pode remover).
+    std::vector<dm::DownloadRecord> webPages;
     for (auto& item : items_) {
         if (!item->task) continue;
         const dm::DownloadStatus previous = item->live.status;
@@ -272,9 +302,11 @@ bool DownloadManager::tick() {
                 if (onCompleted) onCompleted(*item);
                 break;
             case dm::DownloadStatus::Failed:
+                if (item->live.error == dm::DownloadError::WebPage) webPages.push_back(record);
                 record.state = dm::RecordState::Failed;
                 record.errorCode = static_cast<int>(item->live.error);
                 record.errorDetail = item->live.errorDetail;
+                record.errorText = item->live.errorText;
                 break;
             case dm::DownloadStatus::Paused:
                 if (item->pausedBySchedule) {
@@ -291,6 +323,10 @@ bool DownloadManager::tick() {
                 break;
         }
     }
+    for (const auto& record : webPages) {
+        remove(record.id, true);
+        if (onWebPage) onWebPage(record);
+    }
     if (advanceQueue()) changed = true;
     if (changed || ++ticksSinceSave_ >= kSaveEveryTicks) save();
     return changed;
@@ -303,14 +339,58 @@ DownloadItem* DownloadManager::find(uint64_t id) {
     return nullptr;
 }
 
+namespace {
+
+// No modelo de nome do yt-dlp, "%" tem significado: um título com "100%" vira "100%%".
+std::string escapeTemplate(const std::string& text) {
+    std::string escaped;
+    for (const char c : text) {
+        escaped += c;
+        if (c == '%') escaped += '%';
+    }
+    return escaped;
+}
+
+}  // namespace
+
 void DownloadManager::startTask(DownloadItem& item) {
+    const bool rejectWebPages = item.rejectWebPages;
     stopTask(item);
+    if (item.record.isVideo) {
+        if (!videoTools_ || !videoTools_->ready()) {
+            item.record.state = dm::RecordState::Queued;
+            return;
+        }
+        dm::VideoTaskOptions options;
+        options.ytDlpPath = videoTools_->ytDlpPath();
+        options.tempDirectory = videoTools_->tempDirectory();
+        options.job.url = item.record.url;
+        options.job.outputDirectory = item.record.directory;
+        options.job.fileNameTemplate = escapeTemplate(item.record.fileName);
+        options.job.format = dm::VideoFormat::parse(item.record.videoFormat);
+        options.job.subtitles = item.record.subtitles;
+        options.job.ffmpegDirectory = dm::toUtf8(videoTools_->ffmpegDirectory());
+        options.job.userAgent = item.record.userAgent;
+        options.job.speedLimit = item.record.speedLimit;
+        for (const auto& header : unprotectHeaders(item.record.protectedHeaders)) {
+            if (header.name == "Cookie") options.cookieHeader = header.value;
+            if (header.name == "Referer") options.job.referrer = header.value;
+        }
+        item.task = std::make_unique<dm::VideoTask>(std::move(options));
+        item.task->start();
+        item.live = item.task->progress();
+        item.record.state = dm::RecordState::Active;
+        item.record.errorCode = 0;
+        item.record.errorText.clear();
+        return;
+    }
     dm::DownloadOptions options;
     options.url = item.record.url;
     options.connections = item.record.connections;
     options.speedLimit = item.record.speedLimit;
     options.sharedLimiter = globalLimiter_;
     options.headers = unprotectHeaders(item.record.protectedHeaders);
+    options.rejectWebPages = rejectWebPages;
     if (!item.record.userAgent.empty()) options.userAgent = dm::toWide(item.record.userAgent);
     if (!item.record.filePath.empty()) {
         // Já sabemos o arquivo: mira nele, para continuar de onde parou.
@@ -344,6 +424,7 @@ void DownloadManager::stopTask(DownloadItem& item) {
     item.live = {};
     item.forced = false;
     item.pausedBySchedule = false;
+    item.rejectWebPages = false;  // só na primeira tentativa
 }
 
 }  // namespace app

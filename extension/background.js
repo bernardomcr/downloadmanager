@@ -224,9 +224,8 @@ async function mediaFor(tabId) {
 
 async function setMedia(tabId, list) {
   await api.storage.session.set({ [`media:${tabId}`]: list });
-  const files = list.filter((media) => media.kind === "file").length;
   try {
-    await api.action.setBadgeText({ tabId, text: files ? String(files) : "" });
+    await api.action.setBadgeText({ tabId, text: list.length ? String(list.length) : "" });
     await api.action.setBadgeBackgroundColor({ tabId, color: "#2563eb" });
   } catch {}
 }
@@ -264,7 +263,10 @@ api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     } else if (message.type === "ping") {
       sendResponse(await sendNative({ type: "ping" }));
     } else if (message.type === "download") {
-      const reply = await sendNative(await buildRequest(message.url, { referrer: message.pageUrl || "", source: "media" }));
+      const source = message.source === "page" ? "page" : "media";
+      const reply = await sendNative(
+        await buildRequest(message.url, { referrer: message.pageUrl || "", source, fileName: message.title || "" }),
+      );
       sendResponse(reply);
     }
   })();

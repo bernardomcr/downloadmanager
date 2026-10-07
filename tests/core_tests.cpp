@@ -1,5 +1,6 @@
 // Testes da parte portátil (roda no Windows e no Linux). Sem framework: cada CHECK que falha
 // imprime o local e o processo termina com código 1.
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <random>
@@ -8,6 +9,7 @@
 
 #include "core/base64.h"
 #include "core/browser_request.h"
+#include "core/command_line.h"
 #include "core/download_list.h"
 #include "core/format.h"
 #include "core/http_headers.h"
@@ -16,6 +18,7 @@
 #include "core/resume_state.h"
 #include "core/segments.h"
 #include "core/settings.h"
+#include "core/video.h"
 
 namespace {
 
@@ -183,6 +186,10 @@ void testDownloadList() {
 
     dm::DownloadRecord second = record;
     second.id = 8;
+    second.isVideo = true;
+    second.videoFormat = "720";
+    second.subtitles = true;
+    second.errorText = "Video unavailable";
     second.state = dm::RecordState::Queued;
 
     const auto parsed = dm::parseDownloadList(dm::serializeDownloadList({record, second}));
@@ -193,6 +200,8 @@ void testDownloadList() {
     CHECK(parsed[0].errorCode == 3 && parsed[0].errorDetail == 404);
     CHECK(parsed[1].state == dm::RecordState::Queued && parsed[0].speedLimit == 51200);
     CHECK(parsed[0].protectedHeaders == "QUJD" && parsed[0].userAgent == "Mozilla/5.0 (X)");
+    CHECK(!parsed[0].isVideo && parsed[1].isVideo && parsed[1].videoFormat == "720" && parsed[1].subtitles);
+    CHECK(parsed[1].errorText == "Video unavailable");
 
     // Item sem URL é descartado; o resto continua.
     CHECK(dm::parseDownloadList("dmlist 1\n[download]\nid 1\n[download]\nid 2\nurl x\n").size() == 1);
@@ -299,6 +308,8 @@ void testBrowserRequest() {
     const auto headers = dm::browserHeaders(*parsed);
     CHECK(headers.size() == 2 && headers[0].first == "Cookie" && headers[1].first == "Referer");
 
+    CHECK(dm::parseBrowserRequest(R"({"type":"add","url":"https://youtu.be/x","source":"page"})")->source ==
+          dm::BrowserRequest::Source::Page);
     CHECK(!dm::parseBrowserRequest(R"({"type":"add","url":"file:///C:/Windows/win.ini"})"));
     CHECK(!dm::parseBrowserRequest(R"({"type":"add","url":"javascript:void"})"));
     CHECK(!dm::parseBrowserRequest(R"({"type":"other","url":"https://a.com/x"})"));
@@ -346,6 +357,79 @@ void testBase64() {
     CHECK(!dm::base64Decode("****"));
 }
 
+void testVideo() {
+    CHECK(dm::VideoFormat::parse("1080").kind == dm::VideoFormat::Kind::MaxHeight);
+    CHECK(dm::VideoFormat::parse("1080").maxHeight == 1080);
+    CHECK(dm::VideoFormat::parse("mp3").serialize() == "mp3");
+    CHECK(dm::VideoFormat::parse("lixo").kind == dm::VideoFormat::Kind::Best);
+
+    dm::VideoJob job;
+    job.url = "https://www.youtube.com/watch?v=abc";
+    job.outputDirectory = "C:\\Vídeos";
+    job.format = dm::VideoFormat::parse("720");
+    job.subtitles = true;
+    job.cookiesFile = "C:\\t\\c.txt";
+    job.speedLimit = 1000;
+    const auto args = dm::ytDlpArguments(job);
+    auto has = [&](const std::string& a, const std::string& b) {
+        for (size_t i = 0; i + 1 < args.size(); ++i) {
+            if (args[i] == a && args[i + 1] == b) return true;
+        }
+        return false;
+    };
+    CHECK(has("-P", "C:\\Vídeos") && has("--cookies", "C:\\t\\c.txt") && has("--limit-rate", "1000"));
+    CHECK(has("-f", "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b"));
+    CHECK(has("--sub-langs", "pt.*,en.*"));
+    CHECK(args.back() == job.url && args[args.size() - 2] == "--");  // link nunca vira opção
+
+    job.format = dm::VideoFormat::parse("mp3");
+    const auto audio = dm::ytDlpArguments(job);
+    CHECK(std::find(audio.begin(), audio.end(), "--audio-format") != audio.end());
+
+    auto progress = dm::parseYtDlpProgress("DMPROG 1048576|NA|10485760.5|524288.0|18");
+    CHECK(progress && progress->downloaded == 1048576 && progress->total == 10485760 && progress->eta == 18);
+    progress = dm::parseYtDlpProgress("DMPROG 10|20|NA|NA|NA\r");
+    CHECK(progress && progress->total == 20 && progress->speed == 0 && progress->eta == -1);
+    CHECK(!dm::parseYtDlpProgress("[download] 10% of 1MiB"));
+    CHECK(dm::parseYtDlpFinalPath("DMFILE C:\\x\\Vídeo.mp4\r") == std::optional<std::string>("C:\\x\\Vídeo.mp4"));
+    CHECK(dm::isYtDlpPostProcessing("DMPOST Merger"));
+
+    const auto info = dm::parseYtDlpInfo(R"({"title":"Clipe","duration":12.5,"formats":[)"
+                                         R"({"height":720,"vcodec":"avc1"},{"height":1080,"vcodec":"vp9"},)"
+                                         R"({"height":null,"vcodec":"none"},{"height":2160,"vcodec":"av01","has_drm":true}],)"
+                                         R"("subtitles":{"pt":[{"ext":"vtt"}]}})");
+    CHECK(info && info->title == "Clipe" && !info->isPlaylist && info->duration == 12);
+    CHECK(info->heights == std::vector<int>({1080, 720}) && info->hasSubtitles && !info->drmProtected);
+    const auto drm = dm::parseYtDlpInfo(R"({"title":"x","formats":[{"height":720,"has_drm":true}]})");
+    CHECK(drm && drm->drmProtected && drm->heights.empty());
+    const auto list = dm::parseYtDlpInfo(R"({"_type":"playlist","title":"Lista","entries":[)"
+                                         R"({"url":"https://a/1","title":"Um"},{"title":"sem link"},{"url":"https://a/2"}]})");
+    CHECK(list && list->isPlaylist && list->entries.size() == 2 && list->entries[0].title == "Um");
+    CHECK(dm::isDrmError("ERROR: [Netflix] This video is DRM protected"));
+
+    CHECK(dm::looksLikeVideoPage("https://www.youtube.com/watch?v=1"));
+    CHECK(dm::looksLikeVideoPage("https://m.youtube.com/shorts/1"));
+    CHECK(dm::looksLikeVideoPage("https://cdn.site.com/live/master.m3u8?token=1"));
+    CHECK(!dm::looksLikeVideoPage("https://notyoutube.com/x"));
+    CHECK(!dm::looksLikeVideoPage("https://example.com/file.zip"));
+
+    const std::string cookies = dm::netscapeCookies("https://www.youtube.com/watch?v=1", "SID=abc; PREF=f1=1; bad");
+    CHECK(cookies.find(".youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc\n") != std::string::npos);
+    CHECK(cookies.find("PREF\tf1=1") != std::string::npos && cookies.find("bad") == std::string::npos);
+}
+
+void testCommandLine() {
+    CHECK(dm::quoteArgument("simples") == "simples");
+    CHECK(dm::quoteArgument("") == "\"\"");
+    CHECK(dm::quoteArgument("com espaço") == "\"com espaço\"");
+    CHECK(dm::quoteArgument("C:\\Pasta Nova\\") == "\"C:\\Pasta Nova\\\\\"");
+    CHECK(dm::quoteArgument("a\"b") == "\"a\\\"b\"");
+    CHECK(dm::quoteArgument("a\\\"b") == "\"a\\\\\\\"b\"");
+    CHECK(dm::quoteArgument("C:\\sem\\espaco") == "C:\\sem\\espaco");
+    CHECK(dm::buildCommandLine("C:\\x y\\yt-dlp.exe", {"-o", "%(title)s.%(ext)s", "--", "https://a/b?c=1&d=2"}) ==
+          "\"C:\\x y\\yt-dlp.exe\" -o %(title)s.%(ext)s -- https://a/b?c=1&d=2");
+}
+
 }  // namespace
 
 int main() {
@@ -363,6 +447,8 @@ int main() {
     testJson();
     testBrowserRequest();
     testBase64();
+    testVideo();
+    testCommandLine();
 
     if (g_failures == 0) std::printf("Todos os testes passaram.\n");
     return g_failures == 0 ? 0 : 1;

@@ -59,7 +59,7 @@ app.exe (um único processo)
    - tudo que o navegador terminar é **adotado**: movido para a pasta do app e listado em Concluídos;
    - clique direito em links/vídeos/imagens: "Baixar com o Download Manager"; popup lista vídeos/áudios da página (badge com a contagem), sem nada flutuando na página;
    - janela anônima fica com o navegador (privacidade).
-5. **Vídeos** — yt-dlp integrado, escolha de qualidade, playlists.
+5. **Vídeos** ✅ — yt-dlp + ffmpeg baixados pelo próprio app na primeira vez (~200 MB, em `%LOCALAPPDATA%\DownloadManager\tools`), yt-dlp atualizado a cada 7 dias. Link de site conhecido (YouTube, Vimeo, X, Instagram, TikTok...) ou qualquer link colado que abra uma página → janela de vídeo: título, duração, qualidade (melhor / até Np / MP3 / áudio original), legendas pt/en, playlist com caixas de seleção. Na lista: pausar/continuar (o yt-dlp aproveita o que já baixou), fila, limite. Streams HLS/DASH com 8 pedaços em paralelo. Extensão: "Baixar o vídeo desta página" (leva os cookies: evita o "confirme que não é um robô" do YouTube) e streams no popup. DRM: detectado e recusado.
 6. **Torrent** — magnet/.torrent, seleção de arquivos, seed configurável.
 7. **Regras automáticas** — por extensão/site/tamanho: pasta destino, extrair, abrir, rodar comando.
 8. **Distribuição** — instalador, auto-update, assinatura.

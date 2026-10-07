@@ -21,6 +21,15 @@ jobs:
       - name: Testes
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Preparar vídeos (baixa yt-dlp e ffmpeg e extrai com o tar do Windows)
+        shell: pwsh
+        run: |
+          build/Release/dm-cli.exe --preparar-videos "$env:RUNNER_TEMP\dm-dados"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & "$env:RUNNER_TEMP\dm-dados\tools\yt-dlp.exe" --version
+          & "$env:RUNNER_TEMP\dm-dados\tools\ffmpeg.exe" -version | Select-Object -First 1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       - name: Testes da extensão
         run: node --test tests/extension_lib.test.cjs
 

@@ -20,6 +20,7 @@ configure_file(src/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/version.h 
 add_library(dm_core STATIC
     src/core/base64.cpp
     src/core/browser_request.cpp
+    src/core/command_line.cpp
     src/core/download_list.cpp
     src/core/format.cpp
     src/core/http_headers.cpp
@@ -28,6 +29,7 @@ add_library(dm_core STATIC
     src/core/resume_state.cpp
     src/core/segments.cpp
     src/core/settings.cpp
+    src/core/video.cpp
 )
 target_link_libraries(dm_core PUBLIC dm_options)
 
@@ -48,6 +50,8 @@ if(WIN32)
         src/engine/download_task.cpp
         src/engine/http.cpp
         src/engine/output_file.cpp
+        src/engine/process.cpp
+        src/engine/video_task.cpp
         src/i18n/errors.cpp
         src/i18n/strings.cpp
         src/util/file_io.cpp
@@ -56,26 +60,33 @@ if(WIN32)
     )
     target_link_libraries(dm_engine PUBLIC dm_core winhttp crypt32)
 
-    add_executable(DownloadManager WIN32
-        src/main.cpp
+    # Camada do app (lista de downloads, integrações com o Windows, ferramentas de vídeo).
+    add_library(dm_app STATIC
         src/app/browser_integration.cpp
         src/app/download_manager.cpp
         src/app/system.cpp
+        src/app/video_tools.cpp
+    )
+    target_link_libraries(dm_app PUBLIC dm_engine shell32 ole32 uuid powrprof)
+
+    add_executable(DownloadManager WIN32
+        src/main.cpp
         src/ui/dialogs.cpp
         src/ui/download_list_view.cpp
         src/ui/main_window.cpp
         src/ui/settings_page.cpp
         src/ui/tray_icon.cpp
+        src/ui/video_dialog.cpp
         res/app.rc
     )
     target_include_directories(DownloadManager PRIVATE res)
-    target_link_libraries(DownloadManager PRIVATE dm_engine comctl32 uxtheme shell32 ole32 uuid powrprof)
+    target_link_libraries(DownloadManager PRIVATE dm_app comctl32 uxtheme)
 
     add_executable(dm-cli
         src/cli/main.cpp
         res/app.rc
     )
-    target_link_libraries(dm-cli PRIVATE dm_engine)
+    target_link_libraries(dm-cli PRIVATE dm_app)
 
     # Ponte com a extensão do navegador (Native Messaging). Console: o navegador conversa por stdin/stdout.
     add_executable(dm-host
@@ -96,7 +107,7 @@ if(WIN32)
             target_link_options(${app} PRIVATE -static -s)
         endif()
     endforeach()
-    foreach(lib dm_engine)
+    foreach(lib dm_engine dm_app)
         if(MSVC)
             set_property(TARGET ${lib} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
         endif()

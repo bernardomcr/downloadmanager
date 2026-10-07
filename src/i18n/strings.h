@@ -104,6 +104,26 @@ enum class Str {
     SpeedLimitedSuffix,
     SettingsBrowserAsk,
     SettingsAdopt,
+    ErrProtected,
+    ErrToolFailed,  // %ls = mensagem do yt-dlp
+    StatusProcessing,
+    StatusVideoPart,
+    VideoTitle,
+    VideoPreparing,
+    VideoAnalyzing,
+    VideoNotFound,
+    VideoDrm,
+    VideoToolsFailed,
+    VideoQuality,
+    QualityBest,
+    QualityHeight,
+    QualityMp3,
+    QualityAudio,
+    VideoSubtitles,
+    VideoPlaylist,
+    VideoAsFile,
+    ColDuration,
+    ErrWebPage,
     Count  // manter por último
 };
 

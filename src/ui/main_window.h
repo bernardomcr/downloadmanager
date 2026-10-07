@@ -9,6 +9,7 @@
 
 #include "app/download_manager.h"
 #include "app/ipc.h"
+#include "app/video_tools.h"
 #include "core/browser_request.h"
 #include "core/settings.h"
 #include "ui/download_list_view.h"
@@ -51,6 +52,10 @@ private:
     void refreshLists();
     void onTimer();
     void onAddClicked();
+    // Fluxo de vídeo (análise + escolhas). Devolve o id do primeiro download criado, 0 se cancelado.
+    uint64_t addVideoFlow(const std::wstring& url, const std::wstring& folder, const std::wstring& title,
+                          const std::vector<std::pair<std::string, std::string>>& headers,
+                          const std::string& userAgent, bool& declined);
     // Pedido vindo da extensão do navegador (via dm-host.exe).
     void onBrowserRequest(const dm::BrowserRequest& request);
     void processBrowserRequests();
@@ -84,6 +89,7 @@ private:
     std::wstring settingsPath_;
     dm::Settings settings_;
     std::unique_ptr<app::DownloadManager> manager_;
+    std::unique_ptr<app::VideoTools> videoTools_;
     DownloadListView downloadsList_;
     DownloadListView completedList_;
     SettingsPage settingsPage_;
@@ -107,6 +113,7 @@ private:
         int attempts = 0;
     };
     std::vector<PendingAdoption> pendingAdoptions_;
+    std::vector<dm::DownloadRecord> pendingWebPages_;
 };
 
 }  // namespace ui

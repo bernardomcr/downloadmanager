@@ -2,11 +2,12 @@
 
 #include <string>
 
-#include "engine/download_task.h"
+#include "engine/task.h"
 
 namespace i18n {
 
 // Mensagem traduzida para o motivo de falha de um download.
-std::wstring describeError(dm::DownloadError error, unsigned long detail);
+// `text`: mensagem da ferramenta (UTF-8), usada em ToolFailed.
+std::wstring describeError(dm::DownloadError error, unsigned long detail, const std::string& text = {});
 
 }  // namespace i18n

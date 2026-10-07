@@ -3,10 +3,11 @@
 #include <cwchar>
 
 #include "i18n/strings.h"
+#include "util/unicode.h"
 
 namespace i18n {
 
-std::wstring describeError(dm::DownloadError error, unsigned long detail) {
+std::wstring describeError(dm::DownloadError error, unsigned long detail, const std::string& text) {
     Str id;
     switch (error) {
         case dm::DownloadError::None: return {};
@@ -22,6 +23,13 @@ std::wstring describeError(dm::DownloadError error, unsigned long detail) {
         case dm::DownloadError::DiskFull: id = Str::ErrDiskFull; break;
         case dm::DownloadError::AccessDenied: id = Str::ErrAccessDenied; break;
         case dm::DownloadError::FileSystem: id = Str::ErrFileSystem; break;
+        case dm::DownloadError::Protected: id = Str::ErrProtected; break;
+        case dm::DownloadError::WebPage: id = Str::ErrWebPage; break;
+        case dm::DownloadError::ToolFailed: {
+            wchar_t buffer[512];
+            std::swprintf(buffer, 512, tr(Str::ErrToolFailed), dm::toWide(text.substr(0, 400)).c_str());
+            return buffer;
+        }
         default: id = Str::ErrNetwork; break;
     }
     wchar_t buffer[256];

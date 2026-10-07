@@ -177,6 +177,7 @@ std::wstring DownloadListView::cellText(const app::DownloadItem& item, int colum
             return dm::toWide(dm::formatSpeed(item.speed(), i18n::decimalSeparator()));
         }
         case 4:
+            if (item.running() && item.live.secondsLeft >= 0) return dm::toWide(dm::formatDuration(item.live.secondsLeft));
             if (item.running() && record.totalSize > 0 && item.speed() > 1) {
                 const auto seconds =
                     static_cast<int64_t>(static_cast<double>(record.totalSize - record.downloaded) / item.speed());
@@ -187,6 +188,13 @@ std::wstring DownloadListView::cellText(const app::DownloadItem& item, int colum
             if (item.running()) {
                 std::wstring status = tr(item.live.status == dm::DownloadStatus::Connecting ? Str::StatusConnecting
                                                                                             : Str::StatusDownloading);
+                if (item.live.postProcessing) {
+                    status = tr(Str::StatusProcessing);
+                } else if (item.live.part > 1) {
+                    wchar_t text[64];
+                    std::swprintf(text, 64, tr(Str::StatusVideoPart), item.live.part);
+                    status = text;
+                }
                 if (record.speedLimit > 0) {
                     status += L" · " + std::wstring(tr(Str::SpeedLimitedSuffix)) + L" " +
                               dm::toWide(dm::formatSpeed(static_cast<double>(record.speedLimit),
@@ -198,7 +206,8 @@ std::wstring DownloadListView::cellText(const app::DownloadItem& item, int colum
                 return tr(manager_->scheduleOpen() ? Str::StatusQueued : Str::StatusWaitingSchedule);
             }
             if (record.state == dm::RecordState::Failed) {
-                return i18n::describeError(static_cast<dm::DownloadError>(record.errorCode), record.errorDetail);
+                return i18n::describeError(static_cast<dm::DownloadError>(record.errorCode), record.errorDetail,
+                                           record.errorText);
             }
             if (item.task && !item.live.resumable && record.downloaded > 0) return tr(Str::StatusPausedRestart);
             return tr(Str::StatusPaused);

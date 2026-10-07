@@ -85,3 +85,11 @@ button:disabled {
 .warning {
   color: #b91c1c;
 }
+.page-video {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.page-video button {
+  width: 100%;
+  padding: 6px 10px;
+}

@@ -64,8 +64,9 @@ std::optional<BrowserRequest> parseBrowserRequest(const std::string& json) {
     request.token = value->string("token");
     if (request.token.size() > 64 || hasLineBreak(request.token)) request.token.clear();
     const std::string source = value->string("source");
-    request.source = source == "link" ? BrowserRequest::Source::Link
+    request.source = source == "link"    ? BrowserRequest::Source::Link
                      : source == "media" ? BrowserRequest::Source::Media
+                     : source == "page"  ? BrowserRequest::Source::Page
                                          : BrowserRequest::Source::Capture;
 
     if (!isWebUrl(request.url) || request.url.size() > kMaxUrl || hasLineBreak(request.url)) return std::nullopt;
@@ -145,6 +146,7 @@ std::string serializeBrowserRequest(const BrowserRequest& request) {
     object["headers"] = std::move(headers);
     object["source"] = request.source == BrowserRequest::Source::Link    ? "link"
                        : request.source == BrowserRequest::Source::Media ? "media"
+                       : request.source == BrowserRequest::Source::Page  ? "page"
                                                                           : "capture";
     return JsonValue(std::move(object)).serialize();
 }

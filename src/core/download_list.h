@@ -33,6 +33,11 @@ struct DownloadRecord {
     // Cabeçalhos extras (Cookie, Referer) vindos do navegador, já criptografados pelo app (opaco aqui).
     std::string protectedHeaders;
     std::string userAgent;   // do navegador que mandou o download; vazio = padrão do app
+
+    bool isVideo = false;        // baixado pelo yt-dlp
+    std::string videoFormat;     // VideoFormat::serialize(): "best", "1080", "mp3"...
+    bool subtitles = false;
+    std::string errorText;       // mensagem da ferramenta quando o erro é ToolFailed
     int errorCode = 0;       // DownloadError salvo como número
     unsigned long errorDetail = 0;
 };

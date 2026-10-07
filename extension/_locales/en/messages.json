@@ -1,13 +1,38 @@
 {
-  "extensionName": { "message": "Download Manager" },
-  "extensionDescription": { "message": "Sends the downloads you start to the Download Manager app and lists the videos and audio on the page." },
-  "menuDownloadLink": { "message": "Download with Download Manager" },
-  "popupCapture": { "message": "Send browser downloads to the app" },
-  "popupMediaTitle": { "message": "Media on this page" },
-  "popupMediaEmpty": { "message": "No video or audio found yet. Play the video and open this again." },
-  "popupDownload": { "message": "Download" },
-  "popupSent": { "message": "Sent" },
-  "popupAppMissing": { "message": "The app did not answer. Is Download Manager installed?" },
-  "popupFailed": { "message": "Could not send" },
-  "popupStreamsLater": { "message": "Streaming videos (HLS/DASH) will be supported soon." }
+  "extensionName": {
+    "message": "Download Manager"
+  },
+  "extensionDescription": {
+    "message": "Sends the downloads you start to the Download Manager app and lists the videos and audio on the page."
+  },
+  "menuDownloadLink": {
+    "message": "Download with Download Manager"
+  },
+  "popupCapture": {
+    "message": "Send browser downloads to the app"
+  },
+  "popupMediaTitle": {
+    "message": "Media on this page"
+  },
+  "popupMediaEmpty": {
+    "message": "No video or audio found yet. Play the video and open this again."
+  },
+  "popupDownload": {
+    "message": "Download"
+  },
+  "popupSent": {
+    "message": "Sent"
+  },
+  "popupAppMissing": {
+    "message": "The app did not answer. Is Download Manager installed?"
+  },
+  "popupFailed": {
+    "message": "Could not send"
+  },
+  "popupPageVideo": {
+    "message": "Download the video on this page"
+  },
+  "popupStream": {
+    "message": "Streaming video"
+  }
 }

@@ -10,7 +10,9 @@
 #include "app/system.h"
 #include "i18n/strings.h"
 #include "resource.h"
+#include "core/video.h"
 #include "ui/dialogs.h"
+#include "ui/video_dialog.h"
 #include "core/http_headers.h"
 #include "util/file_io.h"
 #include "util/unicode.h"
@@ -60,6 +62,9 @@ bool MainWindow::create(HINSTANCE instance, int showCommand, bool startHidden) {
     loadSettings();
     applyLanguage();
     manager_ = std::make_unique<app::DownloadManager>(dm::joinPath(dataDirectory, L"downloads.dat"));
+    videoTools_ = std::make_unique<app::VideoTools>(dataDirectory);
+    manager_->setVideoTools(videoTools_.get());
+    videoTools_->updateIfStale();
 
     WNDCLASSEXW windowClass{};
     windowClass.cbSize = sizeof(windowClass);
@@ -122,6 +127,11 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                 }
             };
             applyQueueSettings();
+            manager_->onWebPage = [this](const dm::DownloadRecord& record) {
+                // Chega pelo timer; o diálogo abre depois, fora do tick.
+                pendingWebPages_.push_back(record);
+                PostMessageW(hwnd_, kProcessBrowserRequests, 0, 0);
+            };
             manager_->load();
             tray_.add(hwnd_, iconSmall_, tr(Str::AppTitle));
             showPage(kDownloads);
@@ -217,6 +227,15 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         case kProcessBrowserRequests:
             processAdoptions();
             processBrowserRequests();
+            while (!pendingWebPages_.empty() && !showingBrowserDialog_) {
+                const dm::DownloadRecord record = pendingWebPages_.front();
+                pendingWebPages_.erase(pendingWebPages_.begin());
+                bool declined = false;
+                showingBrowserDialog_ = true;
+                addVideoFlow(dm::toWide(record.url), dm::toWide(record.directory), dm::toWide(record.fileName), {}, {},
+                             declined);
+                showingBrowserDialog_ = false;
+            }
             return 0;
 
         case TrayIcon::kCallbackMessage:
@@ -474,9 +493,38 @@ void MainWindow::onAddClicked() {
     if (request.folder.empty()) request.folder = downloadFolder();
     SHCreateDirectoryExW(nullptr, request.folder.c_str(), nullptr);
 
-    manager_->add(dm::toUtf8(request.url), request.folder, request.fileName, settings_.connections);
+    if (dm::looksLikeVideoPage(dm::toUtf8(request.url))) {
+        bool declined = false;
+        addVideoFlow(request.url, request.folder, request.fileName, {}, {}, declined);
+    } else {
+        manager_->add(dm::toUtf8(request.url), request.folder, request.fileName, settings_.connections, {}, {},
+                      /*rejectWebPages=*/true);
+    }
     showPage(kDownloads);
     refreshLists();
+}
+
+uint64_t MainWindow::addVideoFlow(const std::wstring& url, const std::wstring& folder, const std::wstring& title,
+                                  const std::vector<std::pair<std::string, std::string>>& headers,
+                                  const std::string& userAgent, bool& declined) {
+    VideoRequest request{url, folder, title, headers, userAgent};
+    VideoChoice choice;
+    declined = !showVideoDialog(IsWindowVisible(hwnd_) ? hwnd_ : nullptr, *videoTools_, request, choice);
+    if (declined) return 0;
+    if (choice.folder.empty()) choice.folder = folder;
+    SHCreateDirectoryExW(nullptr, choice.folder.c_str(), nullptr);
+
+    if (choice.downloadAsFile) {
+        return manager_->add(dm::toUtf8(url), choice.folder, {}, settings_.connections, headers, userAgent);
+    }
+    uint64_t first = 0;
+    for (const auto& item : choice.items) {
+        const uint64_t id = manager_->addVideo(dm::toUtf8(item.url), choice.folder, item.title, choice.format,
+                                               choice.subtitles, headers, userAgent);
+        if (first == 0) first = id;
+    }
+    refreshLists();
+    return first;
 }
 
 void MainWindow::processBrowserRequests() {
@@ -499,6 +547,20 @@ void MainWindow::onBrowserRequest(const dm::BrowserRequest& browserRequest) {
     request.userAgent = browserRequest.userAgent;
 
     auto ticket = browserTickets_.find(browserRequest.token);
+    const bool isVideo = browserRequest.source == dm::BrowserRequest::Source::Page ||
+                         (browserRequest.source != dm::BrowserRequest::Source::Capture &&
+                          dm::looksLikeVideoPage(browserRequest.url));
+    if (isVideo) {
+        // Vídeo sempre abre o diálogo: é preciso escolher a qualidade.
+        showingBrowserDialog_ = true;
+        bool declined = false;
+        const uint64_t id = addVideoFlow(request.url, request.folder, request.fileName, request.headers,
+                                         request.userAgent, declined);
+        showingBrowserDialog_ = false;
+        ticket = browserTickets_.find(browserRequest.token);
+        if (ticket != browserTickets_.end()) ticket->second = {false, declined || id == 0, id};
+        return;
+    }
     if (settings_.askForBrowserDownloads) {
         showingBrowserDialog_ = true;
         const bool confirmed = showAddDialog(IsWindowVisible(hwnd_) ? hwnd_ : nullptr, request);
