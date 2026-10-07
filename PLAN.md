@@ -12,6 +12,10 @@
 | Idiomas | Português (BR) e inglês, troca nas Configurações |
 | Navegadores | Firefox, Chrome e Edge (uma extensão WebExtension para os três) |
 | Espelhos múltiplos | Adiado (pós-v1) |
+| Torrent | Continua semeando ao concluir (etiqueta). Configurações: "Parar de semear automaticamente" (por razão/tempo), desligado por padrão |
+| Captura | Só o que o usuário clicou para baixar no navegador. Sem monitorar a área de transferência, sem botão/barra flutuante sobre vídeos, sem pop-up "inteligente". Vídeos: pelo botão da extensão na barra do navegador |
+| Instalador | Só instalador (setup.exe). Opção "Iniciar com o Windows" marcada por padrão, desmarcável |
+| Iniciar com o Windows | Sim, minimizado na bandeja |
 | Abas | Downloads · Concluídos · Regras · Configurações + botão único **Adicionar** que detecta o tipo do link |
 | Linguagem | C++20 (mesma família do IDM) |
 | Interface | Win32 nativo (sem Electron/WebView/.NET) — janela branca, pequena, abas com nomes claros |
@@ -60,5 +64,15 @@ Lista de regras "SE → ENTÃO", avaliadas na ordem, a primeira que casa vence.
 - **ENTÃO**: salvar na pasta X, renomear com padrão, limite de velocidade/conexões, iniciar agora ou agendar, depois de concluir: extrair, abrir, abrir pasta, apagar o compactado, rodar comando.
 - Vem com regras padrão (equivalente às categorias do IDM): Compactados, Documentos, Músicas, Programas, Vídeos, Torrents.
 
+## Cursos (inspirado no katomart, versão simplificada)
+Referência analisada: katomart (Python, ~34 mil linhas, 61 adaptadores de plataforma, login por e-mail/senha/token, Playwright para capturar token, fluxo Plataforma → Login → Cursos → Módulos → Download).
+Não reaproveitamos código (repo sem arquivo de licença). Aproveitamos as ideias, simplificando:
+- **Sem tela de login**: o usuário abre o curso no navegador onde já está logado e clica no botão da extensão → "Baixar este curso".
+- **Adaptadores na extensão**: cada plataforma é um pequeno script JS que roda com a sessão do próprio navegador e devolve a árvore Curso → Módulos → Aulas (vídeo, anexos, legendas, descrição). Nada de Playwright, token ou senha salva.
+- **No app**: aparece uma lista com caixas de seleção (módulos/aulas, tudo marcado) → Baixar. Estrutura em disco: `Curso/01. Módulo/01. Aula.mp4` + anexos.
+- **Genérico**: em sites sem adaptador, a extensão lista os vídeos/streams (HLS/DASH/MP4) encontrados na página aberta.
+- **Sem DRM**: vídeo com Widevine é detectado e marcado como "protegido — não é possível baixar". Sem CDM, sem mp4decrypt.
+- **Cuidado com a conta**: velocidade conservadora por padrão para não acionar bloqueio da plataforma.
+
 ## Em aberto
-- Ver rodada 3 no chat.
+- Ver rodada 4 no chat.
