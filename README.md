@@ -10,10 +10,10 @@ A cada push na `main`, o GitHub Actions gera o `DownloadManager.exe`. Ele fica n
 
 ## Compilar
 
-Requisitos: Visual Studio 2022 (C++), CMake 3.21+.
+Requisitos: Visual Studio 2022 ou mais novo (C++), CMake 3.21+.
 
 ```bat
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake -S . -B build -A x64
 cmake --build build --config Release
 ```
 

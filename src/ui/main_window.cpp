@@ -32,11 +32,11 @@ struct Column {
 };
 
 constexpr Column kDownloadColumns[] = {
-    {Str::ColName, 250},
+    {Str::ColName, 230},
     {Str::ColSize, 80, LVCFMT_RIGHT},
-    {Str::ColProgress, 80, LVCFMT_RIGHT},
+    {Str::ColProgress, 90, LVCFMT_RIGHT},
     {Str::ColSpeed, 90, LVCFMT_RIGHT},
-    {Str::ColTimeLeft, 100, LVCFMT_RIGHT},
+    {Str::ColTimeLeft, 110, LVCFMT_RIGHT},
     {Str::ColStatus, 110},
 };
 
