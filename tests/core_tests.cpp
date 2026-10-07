@@ -6,10 +6,12 @@
 #include <thread>
 #include <vector>
 
+#include "core/download_list.h"
 #include "core/format.h"
 #include "core/http_headers.h"
 #include "core/resume_state.h"
 #include "core/segments.h"
+#include "core/settings.h"
 
 namespace {
 
@@ -156,6 +158,53 @@ void testConcurrentCoverage() {
     CHECK(planner.bytesWritten() == kSize);
 }
 
+void testDownloadList() {
+    dm::DownloadRecord record;
+    record.id = 7;
+    record.url = "https://example.com/a.zip";
+    record.directory = "C:\\Users\\Zé\\Downloads";
+    record.fileName = "a.zip";
+    record.filePath = "C:\\Users\\Zé\\Downloads\\a.zip";
+    record.state = dm::RecordState::Completed;
+    record.totalSize = 1234;
+    record.downloaded = 1234;
+    record.addedAt = 1700000000;
+    record.finishedAt = 1700000100;
+    record.connections = 4;
+    record.errorCode = 3;
+    record.errorDetail = 404;
+
+    dm::DownloadRecord second = record;
+    second.id = 8;
+    second.state = dm::RecordState::Active;
+
+    const auto parsed = dm::parseDownloadList(dm::serializeDownloadList({record, second}));
+    CHECK(parsed.size() == 2);
+    CHECK(parsed[0].id == 7 && parsed[0].directory == record.directory && parsed[0].filePath == record.filePath);
+    CHECK(parsed[0].state == dm::RecordState::Completed && parsed[0].totalSize == 1234);
+    CHECK(parsed[0].finishedAt == 1700000100 && parsed[0].connections == 4);
+    CHECK(parsed[0].errorCode == 3 && parsed[0].errorDetail == 404);
+    CHECK(parsed[1].state == dm::RecordState::Active);
+
+    // Item sem URL é descartado; o resto continua.
+    CHECK(dm::parseDownloadList("dmlist 1\n[download]\nid 1\n[download]\nid 2\nurl x\n").size() == 1);
+    CHECK(dm::parseDownloadList("outra coisa").empty());
+}
+
+void testSettings() {
+    dm::Settings settings;
+    settings.downloadFolder = "D:\\Baixados";
+    settings.connections = 16;
+    settings.language = dm::LanguageSetting::English;
+    settings.closeToTray = false;
+    const auto parsed = dm::parseSettings(dm::serializeSettings(settings));
+    CHECK(parsed.downloadFolder == "D:\\Baixados" && parsed.connections == 16);
+    CHECK(parsed.language == dm::LanguageSetting::English && !parsed.closeToTray);
+    CHECK(parsed.startWithWindows && parsed.notifyOnComplete);
+    CHECK(dm::parseSettings("connections=500\n").connections == 32);
+    CHECK(dm::parseSettings("").connections == 8);
+}
+
 }  // namespace
 
 int main() {
@@ -166,6 +215,8 @@ int main() {
     testSplitting();
     testReleaseAndRestore();
     testConcurrentCoverage();
+    testDownloadList();
+    testSettings();
 
     if (g_failures == 0) std::printf("Todos os testes passaram.\n");
     return g_failures == 0 ? 0 : 1;

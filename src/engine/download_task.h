@@ -19,6 +19,10 @@ namespace dm {
 
 class SegmentPlanner;
 
+// Enquanto baixa, o arquivo fica como "<nome>.dmpart" e o progresso em "<nome>.dmstate".
+inline constexpr const wchar_t* kPartSuffix = L".dmpart";
+inline constexpr const wchar_t* kStateSuffix = L".dmstate";
+
 enum class DownloadStatus { Idle, Connecting, Downloading, Paused, Completed, Failed };
 
 // Motivo da falha. A UI traduz; `errorDetail` traz o status HTTP ou o código do Windows.

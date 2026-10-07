@@ -58,7 +58,7 @@ std::wstring progressLine(const dm::DownloadProgress& progress, char decimal) {
 int wmain(int argc, wchar_t** argv) {
     SetConsoleOutputCP(CP_UTF8);
     i18n::setLanguage(i18n::systemLanguage());
-    const char decimal = i18n::systemLanguage() == i18n::Language::Portuguese ? ',' : '.';
+    const char decimal = i18n::decimalSeparator();
 
     dm::DownloadOptions options;
     for (int i = 1; i < argc; ++i) {

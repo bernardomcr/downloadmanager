@@ -29,7 +29,7 @@
 - **HTTP**: WinHTTP (já vem no Windows: zero dependências, proxy do sistema, TLS do Windows). HTTP/1.1 com conexões TCP separadas, que é o que dá o ganho de velocidade. FTP fica fora por enquanto.
 - **Torrent**: libtorrent-rasterbar (C++, mesma linguagem, padrão da indústria — usado por qBittorrent).
 - **Vídeo**: yt-dlp.exe empacotado + ffmpeg (para juntar áudio/vídeo), atualizado automaticamente.
-- **Banco**: SQLite (fila, histórico, estado de retomada, regras, configurações).
+- **Persistência**: arquivos de texto simples em `%LOCALAPPDATA%\DownloadManager` (`downloads.dat`, `settings.ini`), gravados de forma atômica; o progresso de cada download fica num `.dmstate` ao lado do arquivo. SQLite só se a lista crescer a ponto de precisar.
 - **Integração com navegador**: extensão MV3 (Chrome/Edge/Firefox) + Native Messaging host.
 - **Meta de tamanho**: executável principal < 5 MB (sem contar yt-dlp/ffmpeg), < 30 MB de RAM ocioso.
 
@@ -50,7 +50,7 @@ app.exe (um único processo)
 ## Fases
 0. **Fundação** ✅ — repo, CMake/vcpkg, CI Windows, esqueleto da janela.
 1. **Engine HTTP** ✅ — multi-conexão com divisão dinâmica de segmentos, pausar/retomar, retomada após travamento, validação por tamanho/ETag, troca de link expirado (no motor; a UI vem na fase 2), `dm-cli`.
-2. **Interface** — janela principal com abas, diálogo "Adicionar", progresso/velocidade/ETA, bandeja, notificações.
+2. **Interface** ✅ — janela principal com abas (com contadores), diálogo "Adicionar", barra de progresso/velocidade/tempo restante, menu de clique direito (pausar, continuar, trocar link, copiar link, abrir pasta, remover, apagar para a Lixeira), bandeja, aviso de concluído, Configurações (pasta, conexões, idioma ao vivo, bandeja, iniciar com o Windows, avisos), retomada automática ao reabrir.
 3. **Fila e agendador** — downloads simultâneos, agendamento, limite de banda, desligar ao concluir.
 4. **Navegador** — extensão capturando downloads (cookies/referer) e vídeos.
 5. **Vídeos** — yt-dlp integrado, escolha de qualidade, playlists.

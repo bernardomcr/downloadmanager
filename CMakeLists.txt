@@ -18,10 +18,12 @@ configure_file(src/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/version.h 
 
 # Núcleo portátil (sem Windows): segmentos, cabeçalhos HTTP, estado de retomada, formatação.
 add_library(dm_core STATIC
+    src/core/download_list.cpp
     src/core/format.cpp
     src/core/http_headers.cpp
     src/core/resume_state.cpp
     src/core/segments.cpp
+    src/core/settings.cpp
 )
 target_link_libraries(dm_core PUBLIC dm_options)
 
@@ -44,16 +46,24 @@ if(WIN32)
         src/engine/output_file.cpp
         src/i18n/errors.cpp
         src/i18n/strings.cpp
+        src/util/file_io.cpp
         src/util/unicode.cpp
     )
     target_link_libraries(dm_engine PUBLIC dm_core winhttp)
 
     add_executable(DownloadManager WIN32
         src/main.cpp
+        src/app/download_manager.cpp
+        src/app/system.cpp
+        src/ui/dialogs.cpp
+        src/ui/download_list_view.cpp
         src/ui/main_window.cpp
+        src/ui/settings_page.cpp
+        src/ui/tray_icon.cpp
         res/app.rc
     )
-    target_link_libraries(DownloadManager PRIVATE dm_engine comctl32)
+    target_include_directories(DownloadManager PRIVATE res)
+    target_link_libraries(DownloadManager PRIVATE dm_engine comctl32 uxtheme shell32 ole32 uuid)
 
     add_executable(dm-cli
         src/cli/main.cpp

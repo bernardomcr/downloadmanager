@@ -5,6 +5,7 @@
 #include "core/http_headers.h"
 #include "core/resume_state.h"
 #include "core/segments.h"
+#include "util/file_io.h"
 #include "util/unicode.h"
 
 namespace dm {
@@ -16,33 +17,6 @@ constexpr size_t kBufferSize = 128 * 1024;
 constexpr auto kMonitorInterval = 500ms;
 constexpr auto kSaveInterval = 3s;
 
-bool fileExists(const std::wstring& path) {
-    return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
-}
-
-std::optional<std::string> readTextFile(const std::wstring& path) {
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return std::nullopt;
-    std::string text;
-    char buffer[4096];
-    DWORD read = 0;
-    while (ReadFile(file, buffer, sizeof(buffer), &read, nullptr) && read > 0) text.append(buffer, read);
-    CloseHandle(file);
-    return text;
-}
-
-// Grava num .tmp e troca de uma vez: um travamento no meio nunca deixa o estado corrompido.
-bool writeTextFileAtomically(const std::wstring& path, const std::string& text) {
-    const std::wstring temporary = path + L".tmp";
-    HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
-    DWORD written = 0;
-    const bool ok = WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr) &&
-                    written == text.size() && FlushFileBuffers(file);
-    CloseHandle(file);
-    return ok && MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
-}
-
 // "video.mp4", 2 -> "video (2).mp4"
 std::wstring numberedName(const std::wstring& name, int number) {
     if (number == 0) return name;
@@ -50,12 +24,6 @@ std::wstring numberedName(const std::wstring& name, int number) {
     const std::wstring suffix = L" (" + std::to_wstring(number) + L")";
     if (dot == std::wstring::npos || dot == 0) return name + suffix;
     return name.substr(0, dot) + suffix + name.substr(dot);
-}
-
-std::wstring joinPath(const std::wstring& directory, const std::wstring& name) {
-    if (directory.empty()) return name;
-    const wchar_t last = directory.back();
-    return (last == L'\\' || last == L'/') ? directory + name : directory + L'\\' + name;
 }
 
 // 0,5 s, 1 s, 2 s, 4 s, 8 s...: a primeira nova tentativa é quase imediata.
@@ -236,8 +204,8 @@ bool DownloadTask::choosePaths(int64_t totalSize, const std::string& etag, const
 
     for (int number = 0;; ++number) {
         const std::wstring target = joinPath(options_.directory, numberedName(baseName, number));
-        const std::wstring part = target + L".dmpart";
-        const std::wstring state = target + L".dmstate";
+        const std::wstring part = target + kPartSuffix;
+        const std::wstring state = target + kStateSuffix;
 
         // Um download pela metade deste mesmo arquivo: continua de onde parou.
         if (totalSize > 0 && fileExists(part)) {
@@ -504,7 +472,7 @@ void DownloadTask::saveState() {
     {
         std::lock_guard lock(mutex_);
         state.url = options_.url;
-        state.fileName = toUtf8(targetPath_.substr(targetPath_.find_last_of(L"\\/") + 1));
+        state.fileName = toUtf8(fileNameOf(targetPath_));
         state.etag = etag_;
         state.lastModified = lastModified_;
     }
@@ -522,9 +490,9 @@ bool DownloadTask::finalizeFile() {
     std::wstring target = targetPath_;
     if (fileExists(target)) {
         // Alguém criou um arquivo com o mesmo nome enquanto baixávamos: não sobrescreve.
-        const std::wstring directory = target.substr(0, target.find_last_of(L"\\/") + 1);
-        const std::wstring name = target.substr(directory.size());
-        for (int number = 1; fileExists(target); ++number) target = directory + numberedName(name, number);
+        const std::wstring directory = directoryOf(target);
+        const std::wstring name = fileNameOf(target);
+        for (int number = 1; fileExists(target); ++number) target = joinPath(directory, numberedName(name, number));
     }
     if (!MoveFileExW(partPath_.c_str(), target.c_str(), MOVEFILE_COPY_ALLOWED)) {
         failFile(GetLastError());

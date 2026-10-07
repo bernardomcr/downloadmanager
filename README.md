@@ -35,14 +35,16 @@ cmake --build build-mingw
 ## Estrutura
 
 ```
-src/main.cpp            entrada do app, instância única
-src/ui/                 janela principal (Win32 puro)
+src/main.cpp            entrada do app, instância única, --tray
+src/app/                lista de downloads (DownloadManager) e integrações com o Windows
+src/ui/                 janela principal, listas, diálogos, Configurações, bandeja (Win32 puro)
 src/cli/                dm-cli
 src/core/               núcleo portátil: divisão de segmentos, cabeçalhos HTTP, estado de retomada
 src/engine/             motor de download (WinHTTP, gravação em disco, tarefa de download)
 src/i18n/               textos em português e inglês
 src/util/               conversões UTF-8/UTF-16
-res/                    manifesto (DPI, estilos visuais) e versão do .exe
+res/                    ícone, diálogos, manifesto (DPI, estilos visuais) e versão do .exe
+tools/                  gerador do ícone
 tests/                  testes do núcleo e servidor HTTP de teste
 ```
 
