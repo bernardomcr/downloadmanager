@@ -178,7 +178,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
 void MainWindow::createControls() {
     tabs_ = CreateWindowExW(0, WC_TABCONTROLW, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS,
-                            0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(kIdTabs), instance_, nullptr);
+                            0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdTabs)), instance_, nullptr);
     const Str tabTitles[kPageCount] = {Str::TabDownloads, Str::TabCompleted, Str::TabRules,
                                        Str::TabSettings};
     for (int i = 0; i < kPageCount; ++i) {
@@ -190,7 +190,7 @@ void MainWindow::createControls() {
 
     addButton_ = CreateWindowExW(0, WC_BUTTONW, tr(Str::AddButton),
                                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd_,
-                                 reinterpret_cast<HMENU>(kIdAddButton), instance_, nullptr);
+                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdAddButton)), instance_, nullptr);
 
     pages_[kDownloads] = createList(hwnd_, instance_, kDownloadColumns);
     pages_[kCompleted] = createList(hwnd_, instance_, kCompletedColumns);
