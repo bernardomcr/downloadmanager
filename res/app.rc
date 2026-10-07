@@ -1,0 +1,27 @@
+#include <windows.h>
+#include "version.h"
+
+1 RT_MANIFEST "app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION DM_VERSION_MAJOR, DM_VERSION_MINOR, DM_VERSION_PATCH, 0
+PRODUCTVERSION DM_VERSION_MAJOR, DM_VERSION_MINOR, DM_VERSION_PATCH, 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "Download Manager"
+            VALUE "FileVersion", DM_VERSION_STRING
+            VALUE "ProductName", "Download Manager"
+            VALUE "ProductVersion", DM_VERSION_STRING
+            VALUE "OriginalFilename", "DownloadManager.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
