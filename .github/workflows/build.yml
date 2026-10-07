@@ -6,6 +6,11 @@ on:
     tags: ['v*']  # tag vX.Y.Z: além do build, publica o release (a atualização automática lê o último)
   pull_request:
   workflow_dispatch:
+    inputs:
+      publicar:
+        description: Publicar o release (tag vX.Y.Z com a versão do CMakeLists.txt)
+        type: boolean
+        default: false
 
 # Um push novo cancela o build anterior do mesmo branch.
 concurrency:
@@ -21,23 +26,31 @@ jobs:
     env:
       AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
       AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      # Release: push de uma tag vX.Y.Z, ou "Run workflow" com "publicar" marcado (o CI cria a tag).
+      PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.publicar == true }}
     steps:
       - uses: actions/checkout@v5
 
       - name: Conferir a versão (tag = CMakeLists.txt = extensão)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}".Substring(1)
           $cmake = [regex]::Match((Get-Content CMakeLists.txt -Raw), 'project\(DownloadManager VERSION ([0-9.]+)').Groups[1].Value
           $extension = (Get-Content extension/manifest.json -Raw | ConvertFrom-Json).version
+          $tag = if ("${{ github.ref }}".StartsWith("refs/tags/v")) { "${{ github.ref_name }}".Substring(1) } else { $cmake }
           "tag $tag · CMake $cmake · extensão $extension"
           if ($tag -ne $cmake -or $tag -ne $extension) { exit 1 }
+          gh release view "v$tag" 2>$null
+          if ($LASTEXITCODE -eq 0) { "O release v$tag já existe: mude a versão antes de publicar."; exit 1 }
+          "RELEASE_TAG=v$tag" | Out-File -Append $env:GITHUB_ENV
+          $global:LASTEXITCODE = 0
 
       # Firefox só instala extensão assinada pela Mozilla. Precisa dos segredos AMO_JWT_ISSUER e AMO_JWT_SECRET
       # (addons.mozilla.org → Ferramentas → Gerenciar chaves de API); sem eles, o passo é pulado.
       - name: Assinar a extensão do Firefox (não listada)
-        if: startsWith(github.ref, 'refs/tags/v') && env.AMO_JWT_ISSUER != ''
+        if: env.PUBLISH == 'true' && env.AMO_JWT_ISSUER != ''
         shell: pwsh
         run: |
           npx --yes web-ext@8 sign --source-dir extension --channel unlisted --artifacts-dir firefox `
@@ -125,7 +138,7 @@ jobs:
             build/Release/extensao-download-manager.zip
 
       - name: Criar o release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.PUBLISH == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
@@ -133,5 +146,5 @@ jobs:
           $files = @("build/Release/DownloadManager-Setup.exe", "build/Release/DownloadManager-Setup.exe.sha256",
                      "build/Release/extensao-download-manager.zip")
           if (Test-Path firefox/download-manager.xpi) { $files += "firefox/download-manager.xpi" }
-          gh release create "${{ github.ref_name }}" @files --title "Download Manager ${{ github.ref_name }}" --generate-notes
+          gh release create $env:RELEASE_TAG @files --target "${{ github.sha }}" --title "Download Manager $env:RELEASE_TAG" --generate-notes
           if ($LASTEXITCODE -ne 0) { exit 1 }

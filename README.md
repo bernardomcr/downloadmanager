@@ -12,9 +12,9 @@ A cada push na `main`, o GitHub Actions também gera os executáveis de teste (a
 
 ## Lançar uma versão
 
-1. Mude a versão em `CMakeLists.txt` (`project(... VERSION X.Y.Z)`) e em `extension/manifest.json`.
-2. Commit, `git tag vX.Y.Z` e `git push origin vX.Y.Z`.
-3. O CI publica o release; os apps instalados pegam a versão nova em até um dia.
+1. Mude a versão em `CMakeLists.txt` (`project(... VERSION X.Y.Z)`) e em `extension/manifest.json`, e faça o commit na `main`.
+2. No GitHub: aba **Actions** → **Build** → **Run workflow**, marque **publicar** e confirme. (Ou faça push de uma tag `vX.Y.Z`.)
+3. O CI confere as versões, compila, testa e publica o release; os apps instalados pegam a versão nova em até um dia.
 
 Para o Firefox instalar a extensão sem modo de desenvolvedor, ela precisa ser assinada pela Mozilla (grátis): crie as chaves em addons.mozilla.org → *Ferramentas* → *Gerenciar chaves de API* e cadastre no GitHub (repositório → *Settings* → *Secrets and variables* → *Actions*) os segredos `AMO_JWT_ISSUER` e `AMO_JWT_SECRET`. Os próximos releases já saem com o `.xpi` assinado dentro do instalador.
 
