@@ -11,6 +11,7 @@
 #include <thread>
 #include <vector>
 
+#include "core/rate_limiter.h"
 #include "core/resume_state.h"
 #include "engine/http.h"
 #include "engine/output_file.h"
@@ -51,6 +52,9 @@ struct DownloadOptions {
     int connections = 8;
     int64_t minSplitSize = 512 * 1024;  // não divide restos menores que 2x isso
     int maxRetries = 5;                 // falhas seguidas sem progresso antes de desistir
+    int64_t speedLimit = 0;             // bytes/s só deste download; 0 = sem limite
+    // Limite total, compartilhado por todos os downloads (opcional).
+    std::shared_ptr<RateLimiter> sharedLimiter;
     std::wstring userAgent =
         L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
         L"Chrome/130.0.0.0 Safari/537.36";
@@ -87,9 +91,17 @@ public:
     // confere se o novo link aponta para o mesmo arquivo.
     bool setUrl(const std::string& url);
 
+    // Muda o limite deste download na hora, mesmo baixando. 0 = sem limite.
+    void setSpeedLimit(int64_t bytesPerSecond);
+
     DownloadProgress progress() const;
 
 private:
+    // Quanto ler por vez: menos quando há limite, para a velocidade ficar estável.
+    size_t readSize(size_t bufferSize) const;
+    // Depois de receber `bytes`, espera o necessário para respeitar os limites. false se mandaram parar.
+    bool throttle(int64_t bytes);
+
     void run();
     bool probe(HttpRequest& request);
     bool choosePaths(int64_t totalSize, const std::string& etag, const std::string& lastModified,
@@ -138,6 +150,7 @@ private:
     mutable std::mutex requestsMutex_;
     std::vector<HttpRequest*> activeRequests_;
 
+    RateLimiter ownLimiter_;
     std::unique_ptr<HttpSession> session_;
     std::unique_ptr<SegmentPlanner> planner_;
     OutputFile file_;

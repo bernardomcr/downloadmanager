@@ -104,6 +104,37 @@ INT_PTR CALLBACK changeUrlDialogProc(HWND dialog, UINT message, WPARAM wParam, L
     return FALSE;
 }
 
+INT_PTR CALLBACK speedLimitDialogProc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam) {
+    if (const INT_PTR brush = whiteBackground(message, wParam)) return brush;
+
+    switch (message) {
+        case WM_INITDIALOG:
+            SetWindowLongPtrW(dialog, DWLP_USER, lParam);
+            SetWindowTextW(dialog, tr(Str::SpeedLimitTitle));
+            SetDlgItemTextW(dialog, IDC_URL_LABEL, tr(Str::SpeedLimitLabel));
+            SetDlgItemInt(dialog, IDC_URL, static_cast<UINT>(*reinterpret_cast<int64_t*>(lParam)), FALSE);
+            SetDlgItemTextW(dialog, IDOK, tr(Str::Save));
+            SetDlgItemTextW(dialog, IDCANCEL, tr(Str::Cancel));
+            SendDlgItemMessageW(dialog, IDC_URL, EM_SETSEL, 0, -1);
+            SetFocus(GetDlgItem(dialog, IDC_URL));
+            return FALSE;
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDOK) {
+                BOOL valid = FALSE;
+                const UINT value = GetDlgItemInt(dialog, IDC_URL, &valid, FALSE);
+                *reinterpret_cast<int64_t*>(GetWindowLongPtrW(dialog, DWLP_USER)) = valid ? value : 0;
+                EndDialog(dialog, IDOK);
+                return TRUE;
+            }
+            if (LOWORD(wParam) == IDCANCEL) {
+                EndDialog(dialog, IDCANCEL);
+                return TRUE;
+            }
+            break;
+    }
+    return FALSE;
+}
+
 }  // namespace
 
 INT_PTR whiteBackground(UINT message, WPARAM wParam) {
@@ -136,6 +167,11 @@ bool showAddDialog(HWND owner, AddRequest& request) {
 bool showChangeUrlDialog(HWND owner, std::wstring& url) {
     return DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_CHANGE_URL), owner, changeUrlDialogProc,
                            reinterpret_cast<LPARAM>(&url)) == IDOK;
+}
+
+bool showSpeedLimitDialog(HWND owner, int64_t& kilobytesPerSecond) {
+    return DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_SPEED_LIMIT), owner, speedLimitDialogProc,
+                           reinterpret_cast<LPARAM>(&kilobytesPerSecond)) == IDOK;
 }
 
 }  // namespace ui

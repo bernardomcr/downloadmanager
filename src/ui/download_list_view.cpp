@@ -23,6 +23,8 @@ constexpr int kProgressColumn = 2;
 
 enum Command {
     kResume = 2001,
+    kStartNow,
+    kSpeedLimit,
     kPause,
     kChangeUrl,
     kCopyUrl,
@@ -168,11 +170,12 @@ std::wstring DownloadListView::cellText(const app::DownloadItem& item, int colum
 
     switch (column) {
         case kProgressColumn:
-            return record.totalSize > 0 ? percentText(fractionOf(record)) : bytes(record.downloaded);
-        case 3:
-            return item.running() && item.live.status == dm::DownloadStatus::Downloading
-                       ? dm::toWide(dm::formatSpeed(item.speed(), i18n::decimalSeparator()))
-                       : L"";
+            if (record.totalSize > 0) return percentText(fractionOf(record));
+            return record.downloaded > 0 ? bytes(record.downloaded) : L"";
+        case 3: {
+            if (!item.running() || item.live.status != dm::DownloadStatus::Downloading) return {};
+            return dm::toWide(dm::formatSpeed(item.speed(), i18n::decimalSeparator()));
+        }
         case 4:
             if (item.running() && record.totalSize > 0 && item.speed() > 1) {
                 const auto seconds =
@@ -182,8 +185,17 @@ std::wstring DownloadListView::cellText(const app::DownloadItem& item, int colum
             return {};
         case 5:
             if (item.running()) {
-                return tr(item.live.status == dm::DownloadStatus::Connecting ? Str::StatusConnecting
-                                                                             : Str::StatusDownloading);
+                std::wstring status = tr(item.live.status == dm::DownloadStatus::Connecting ? Str::StatusConnecting
+                                                                                            : Str::StatusDownloading);
+                if (record.speedLimit > 0) {
+                    status += L" · " + std::wstring(tr(Str::SpeedLimitedSuffix)) + L" " +
+                              dm::toWide(dm::formatSpeed(static_cast<double>(record.speedLimit),
+                                                         i18n::decimalSeparator()));
+                }
+                return status;
+            }
+            if (item.queued()) {
+                return tr(manager_->scheduleOpen() ? Str::StatusQueued : Str::StatusWaitingSchedule);
             }
             if (record.state == dm::RecordState::Failed) {
                 return i18n::describeError(static_cast<dm::DownloadError>(record.errorCode), record.errorDetail);
@@ -309,11 +321,18 @@ bool DownloadListView::handleContextMenu(HWND source, POINT point) {
     }
 
     bool anyRunning = false;
-    bool anyStopped = false;
+    bool anyStopped = false;  // pausado ou com erro
+    bool anyQueued = false;
     for (uint64_t id : ids) {
         const app::DownloadItem* item = manager_->find(id);
         if (!item) continue;
-        (item->running() ? anyRunning : anyStopped) = true;
+        if (item->running()) {
+            anyRunning = true;
+        } else if (item->queued()) {
+            anyQueued = true;
+        } else {
+            anyStopped = true;
+        }
     }
     const bool single = ids.size() == 1;
 
@@ -323,8 +342,10 @@ bool DownloadListView::handleContextMenu(HWND source, POINT point) {
     };
     if (mode_ == Mode::Active) {
         if (anyStopped) add(kResume, Str::MenuResume);
-        if (anyRunning) add(kPause, Str::MenuPause);
+        if (anyStopped || anyQueued) add(kStartNow, Str::MenuStartNow);
+        if (anyRunning || anyQueued) add(kPause, Str::MenuPause);
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        add(kSpeedLimit, Str::MenuSpeedLimit);
         add(kChangeUrl, Str::MenuChangeUrl, single && !anyRunning);
         add(kCopyUrl, Str::MenuCopyUrl);
         add(kOpenFolder, Str::MenuOpenFolder, single);
@@ -360,7 +381,7 @@ void DownloadListView::activate(int index) {
     if (mode_ == Mode::Completed) {
         runCommand(kOpen, {item->record.id});
     } else {
-        runCommand(item->running() ? kPause : kResume, {item->record.id});
+        runCommand(item->running() || item->queued() ? kPause : kResume, {item->record.id});
     }
 }
 
@@ -370,9 +391,20 @@ void DownloadListView::runCommand(int command, const std::vector<uint64_t>& ids)
         case kResume:
             for (uint64_t id : ids) manager_->resume(id);
             break;
+        case kStartNow:
+            for (uint64_t id : ids) manager_->startNow(id);
+            break;
         case kPause:
             for (uint64_t id : ids) manager_->pause(id);
             break;
+        case kSpeedLimit: {
+            const app::DownloadItem* first = manager_->find(ids.front());
+            if (!first) return;
+            int64_t kilobytes = first->record.speedLimit / 1024;
+            if (!showSpeedLimitDialog(parent_, kilobytes)) return;
+            for (uint64_t id : ids) manager_->setSpeedLimit(id, kilobytes * 1024);
+            break;
+        }
         case kChangeUrl: {
             const app::DownloadItem* item = manager_->find(ids.front());
             if (!item) return;

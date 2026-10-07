@@ -64,6 +64,30 @@ bool isPermanentNetworkError(DWORD code) {
 
 DownloadTask::DownloadTask(DownloadOptions options) : options_(std::move(options)) {
     options_.connections = std::clamp(options_.connections, 1, 32);
+    ownLimiter_.setRate(options_.speedLimit);
+}
+
+void DownloadTask::setSpeedLimit(int64_t bytesPerSecond) {
+    ownLimiter_.setRate(bytesPerSecond);
+}
+
+size_t DownloadTask::readSize(size_t bufferSize) const {
+    int64_t limit = ownLimiter_.rate();
+    if (options_.sharedLimiter && options_.sharedLimiter->rate() > 0) {
+        const int64_t shared = options_.sharedLimiter->rate();
+        limit = limit > 0 ? std::min(limit, shared) : shared;
+    }
+    if (limit <= 0) return bufferSize;
+    // Cerca de 1/16 s de dados por leitura, entre 4 KB e o tamanho do buffer.
+    return static_cast<size_t>(std::clamp<int64_t>(limit / 16, 4 * 1024, static_cast<int64_t>(bufferSize)));
+}
+
+bool DownloadTask::throttle(int64_t bytes) {
+    const auto now = RateLimiter::Clock::now();
+    auto wait = ownLimiter_.consume(bytes, now);
+    if (options_.sharedLimiter) wait = std::max(wait, options_.sharedLimiter->consume(bytes, now));
+    if (wait <= std::chrono::nanoseconds::zero()) return !stopRequested_;
+    return waitOrStop(std::chrono::duration_cast<std::chrono::milliseconds>(wait) + std::chrono::milliseconds(1));
 }
 
 DownloadTask::~DownloadTask() {
@@ -323,7 +347,7 @@ void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpReq
         }
 
         while (!failed && !stopRequested_) {
-            const int64_t received = request->read(buffer.data(), buffer.size(), code);
+            const int64_t received = request->read(buffer.data(), readSize(buffer.size()), code);
             if (received < 0) {
                 failed = true;
                 break;
@@ -347,6 +371,7 @@ void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpReq
                 downloaded_ += claim.length;
                 consecutiveFailures = 0;
             }
+            if (!throttle(received)) break;
             // Fim do pedaço (que pode ter encolhido porque outra conexão pegou a metade final).
             if (planner_->reachedEnd(*segment)) break;
         }
@@ -400,7 +425,7 @@ void DownloadTask::runSingleStream(std::unique_ptr<HttpRequest> request) {
         int64_t offset = 0;
         while (!stopRequested_) {
             DWORD readError = 0;
-            const int64_t received = request->read(buffer.data(), buffer.size(), readError);
+            const int64_t received = request->read(buffer.data(), readSize(buffer.size()), readError);
             if (received < 0) {
                 if (!stopRequested_) failNetwork(readError);
                 break;
@@ -417,6 +442,7 @@ void DownloadTask::runSingleStream(std::unique_ptr<HttpRequest> request) {
             }
             offset += received;
             downloaded_ = offset;
+            if (!throttle(received)) break;
         }
         unregisterRequest(request.get());
         --runningWorkers_;

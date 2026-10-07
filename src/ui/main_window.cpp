@@ -117,6 +117,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                     tray_.showNotification(tr(Str::NotifyCompleted), dm::fileNameOf(lastCompletedPath_));
                 }
             };
+            applyQueueSettings();
             manager_->load();
             tray_.add(hwnd_, iconSmall_, tr(Str::AppTitle));
             showPage(kDownloads);
@@ -225,11 +226,19 @@ void MainWindow::saveSettings() {
     dm::writeTextFileAtomically(settingsPath_, dm::serializeSettings(settings_));
 }
 
+void MainWindow::applyQueueSettings() {
+    manager_->setMaxRunning(settings_.maxDownloads);
+    manager_->setSchedule(settings_.scheduleEnabled, settings_.scheduleStart, settings_.scheduleEnd);
+    manager_->setGlobalSpeedLimit(settings_.speedLimitKBps * 1024);
+}
+
 void MainWindow::onSettingsChanged(const dm::Settings& settings) {
     const bool languageChanged = settings.language != settings_.language;
     const bool startupChanged = settings.startWithWindows != settings_.startWithWindows;
+    if (settings.whenDone != settings_.whenDone) sawWork_ = !manager_->idle();
     settings_ = settings;
     saveSettings();
+    applyQueueSettings();
     if (startupChanged) app::setStartWithWindows(settings_.startWithWindows);
     if (languageChanged) {
         applyLanguage();
@@ -385,11 +394,35 @@ void MainWindow::refreshLists() {
 
 void MainWindow::onTimer() {
     const bool changed = manager_->tick();
-    if (!IsWindowVisible(hwnd_)) return;  // na bandeja: não gasta tempo pintando
+
+    const bool working = manager_->runningCount() > 0;
+    if (settings_.keepAwake && working != keepingAwake_) {
+        keepingAwake_ = working;
+        app::keepSystemAwake(working);
+    } else if (!settings_.keepAwake && keepingAwake_) {
+        keepingAwake_ = false;
+        app::keepSystemAwake(false);
+    }
+
+    if (!IsWindowVisible(hwnd_)) {  // na bandeja: não gasta tempo pintando
+        checkWhenDone();
+        return;
+    }
     if (changed) {
         refreshLists();
     } else if (currentPage_ == kDownloads) {
         downloadsList_.refresh();
+    }
+    checkWhenDone();
+}
+
+void MainWindow::checkWhenDone() {
+    if (settings_.whenDone == dm::WhenDone::Nothing) return;
+    if (!manager_->idle()) {
+        sawWork_ = true;
+    } else if (sawWork_) {
+        sawWork_ = false;
+        runWhenDoneAction();
     }
 }
 
@@ -439,6 +472,78 @@ void MainWindow::showWindowFromTray() {
     ShowWindow(hwnd_, IsIconic(hwnd_) ? SW_RESTORE : SW_SHOW);
     SetForegroundWindow(hwnd_);
     refreshLists();
+}
+
+namespace {
+
+struct Countdown {
+    Str message;
+    int secondsLeft;
+};
+
+HRESULT CALLBACK countdownCallback(HWND dialog, UINT notification, WPARAM wParam, LPARAM, LONG_PTR data) {
+    auto* countdown = reinterpret_cast<Countdown*>(data);
+    auto updateText = [&] {
+        wchar_t text[256];
+        swprintf(text, 256, tr(countdown->message), countdown->secondsLeft);
+        SendMessageW(dialog, TDM_SET_ELEMENT_TEXT, TDE_CONTENT, reinterpret_cast<LPARAM>(text));
+    };
+    if (notification == TDN_CREATED) {
+        SendMessageW(dialog, TDM_SET_PROGRESS_BAR_RANGE, 0, MAKELPARAM(0, countdown->secondsLeft));
+        SendMessageW(dialog, TDM_SET_PROGRESS_BAR_POS, countdown->secondsLeft, 0);
+        updateText();
+    } else if (notification == TDN_TIMER) {
+        // wParam: milissegundos desde a criação (ou desde o último reset).
+        const int elapsed = static_cast<int>(wParam / 1000);
+        if (elapsed >= 1) {
+            countdown->secondsLeft -= elapsed;
+            if (countdown->secondsLeft <= 0) {
+                SendMessageW(dialog, TDM_CLICK_BUTTON, IDOK, 0);
+                return S_OK;
+            }
+            SendMessageW(dialog, TDM_SET_PROGRESS_BAR_POS, countdown->secondsLeft, 0);
+            updateText();
+            return S_FALSE;  // reinicia o relógio do TDN_TIMER
+        }
+    }
+    return S_OK;
+}
+
+}  // namespace
+
+void MainWindow::runWhenDoneAction() {
+    const dm::WhenDone action = settings_.whenDone;
+    // Vale uma vez só: volta para "Não fazer nada" antes de agir.
+    settings_.whenDone = dm::WhenDone::Nothing;
+    settingsPage_.setSettings(settings_);
+
+    Countdown countdown{action == dm::WhenDone::Shutdown ? Str::CountdownShutdown : Str::CountdownSleep, 60};
+    const TASKDIALOG_BUTTON buttons[] = {{IDOK, tr(Str::CountdownNow)}, {IDCANCEL, tr(Str::Cancel)}};
+    TASKDIALOGCONFIG config{};
+    config.cbSize = sizeof(config);
+    config.hwndParent = IsWindowVisible(hwnd_) ? hwnd_ : nullptr;
+    config.dwFlags = TDF_CALLBACK_TIMER | TDF_SHOW_PROGRESS_BAR | TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+    config.pButtons = buttons;
+    config.cButtons = 2;
+    config.nDefaultButton = IDCANCEL;
+    config.pszWindowTitle = tr(Str::AppTitle);
+    config.pszMainInstruction = tr(Str::CountdownTitle);
+    config.pszContent = L"";
+    config.hMainIcon = iconLarge_;
+    config.dwFlags |= TDF_USE_HICON_MAIN;
+    config.pfCallback = countdownCallback;
+    config.lpCallbackData = reinterpret_cast<LONG_PTR>(&countdown);
+
+    int pressed = IDCANCEL;
+    if (FAILED(TaskDialogIndirect(&config, &pressed, nullptr, nullptr)) || pressed != IDOK) return;
+
+    if (action == dm::WhenDone::Shutdown) {
+        manager_->shutdown();
+        app::shutdownComputer();
+    } else {
+        manager_->save();
+        app::sleepComputer();
+    }
 }
 
 void MainWindow::exitApp() {

@@ -11,6 +11,7 @@ constexpr const char* kItem = "[download]";
 const char* stateName(RecordState state) {
     switch (state) {
         case RecordState::Active: return "active";
+        case RecordState::Queued: return "queued";
         case RecordState::Paused: return "paused";
         case RecordState::Failed: return "failed";
         case RecordState::Completed: return "completed";
@@ -20,6 +21,7 @@ const char* stateName(RecordState state) {
 
 RecordState parseState(const std::string& text) {
     if (text == "active") return RecordState::Active;
+    if (text == "queued") return RecordState::Queued;
     if (text == "failed") return RecordState::Failed;
     if (text == "completed") return RecordState::Completed;
     return RecordState::Paused;
@@ -56,6 +58,7 @@ std::string serializeDownloadList(const std::vector<DownloadRecord>& records) {
         out << "added " << record.addedAt << '\n';
         out << "finished " << record.finishedAt << '\n';
         out << "connections " << record.connections << '\n';
+        out << "limit " << record.speedLimit << '\n';
         out << "error " << record.errorCode << ' ' << record.errorDetail << '\n';
     }
     return out.str();
@@ -100,6 +103,7 @@ std::vector<DownloadRecord> parseDownloadList(const std::string& text) {
         else if (key == "added") parseNumber(value, current.addedAt);
         else if (key == "finished") parseNumber(value, current.finishedAt);
         else if (key == "connections") parseNumber(value, current.connections);
+        else if (key == "limit") parseNumber(value, current.speedLimit);
         else if (key == "error") {
             std::istringstream numbers(value);
             numbers >> current.errorCode >> current.errorDetail;

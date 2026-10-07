@@ -33,6 +33,10 @@ private:
     void loadSettings();
     void saveSettings();
     void onSettingsChanged(const dm::Settings& settings);
+    void applyQueueSettings();
+    // "Quando todos os downloads terminarem": contagem regressiva e então suspende/desliga.
+    void runWhenDoneAction();
+    void checkWhenDone();
     void applyLanguage();
     void applyTexts();
     void updateTabTitles();
@@ -75,6 +79,8 @@ private:
     SettingsPage settingsPage_;
     TrayIcon tray_;
     std::wstring lastCompletedPath_;
+    bool sawWork_ = false;      // houve download desde que a ação de "quando terminar" foi escolhida
+    bool keepingAwake_ = false;
 };
 
 }  // namespace ui

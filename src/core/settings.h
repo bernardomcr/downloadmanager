@@ -1,10 +1,13 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace dm {
 
 enum class LanguageSetting { Automatic, Portuguese, English };
+
+enum class WhenDone { Nothing, Sleep, Shutdown };
 
 // Configurações do app. Strings em UTF-8.
 struct Settings {
@@ -14,7 +17,21 @@ struct Settings {
     bool closeToTray = true;
     bool startWithWindows = true;
     bool notifyOnComplete = true;
+    bool keepAwake = true;          // não deixa o PC dormir enquanto baixa
+
+    int maxDownloads = 3;           // downloads ao mesmo tempo; o resto espera na fila
+    int64_t speedLimitKBps = 0;     // limite total; 0 = sem limite
+    bool scheduleEnabled = false;   // só baixa a fila entre scheduleStart e scheduleEnd
+    int scheduleStart = 2 * 60;     // minutos do dia
+    int scheduleEnd = 8 * 60;
+
+    // Vale só para esta sessão (não é salvo): volta para Nothing depois de executar.
+    WhenDone whenDone = WhenDone::Nothing;
 };
+
+// "HH:MM" <-> minutos do dia. -1 se inválido.
+int parseTimeOfDay(const std::string& text);
+std::string formatTimeOfDay(int minutes);
 
 std::string serializeSettings(const Settings& settings);
 // Chaves desconhecidas ou inválidas mantêm o valor padrão.

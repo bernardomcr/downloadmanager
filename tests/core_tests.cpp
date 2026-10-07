@@ -9,6 +9,7 @@
 #include "core/download_list.h"
 #include "core/format.h"
 #include "core/http_headers.h"
+#include "core/rate_limiter.h"
 #include "core/resume_state.h"
 #include "core/segments.h"
 #include "core/settings.h"
@@ -171,12 +172,13 @@ void testDownloadList() {
     record.addedAt = 1700000000;
     record.finishedAt = 1700000100;
     record.connections = 4;
+    record.speedLimit = 51200;
     record.errorCode = 3;
     record.errorDetail = 404;
 
     dm::DownloadRecord second = record;
     second.id = 8;
-    second.state = dm::RecordState::Active;
+    second.state = dm::RecordState::Queued;
 
     const auto parsed = dm::parseDownloadList(dm::serializeDownloadList({record, second}));
     CHECK(parsed.size() == 2);
@@ -184,7 +186,7 @@ void testDownloadList() {
     CHECK(parsed[0].state == dm::RecordState::Completed && parsed[0].totalSize == 1234);
     CHECK(parsed[0].finishedAt == 1700000100 && parsed[0].connections == 4);
     CHECK(parsed[0].errorCode == 3 && parsed[0].errorDetail == 404);
-    CHECK(parsed[1].state == dm::RecordState::Active);
+    CHECK(parsed[1].state == dm::RecordState::Queued && parsed[0].speedLimit == 51200);
 
     // Item sem URL é descartado; o resto continua.
     CHECK(dm::parseDownloadList("dmlist 1\n[download]\nid 1\n[download]\nid 2\nurl x\n").size() == 1);
@@ -197,12 +199,64 @@ void testSettings() {
     settings.connections = 16;
     settings.language = dm::LanguageSetting::English;
     settings.closeToTray = false;
+    settings.maxDownloads = 5;
+    settings.speedLimitKBps = 300;
+    settings.scheduleEnabled = true;
+    settings.scheduleStart = 23 * 60;
+    settings.scheduleEnd = 6 * 60 + 30;
+    settings.whenDone = dm::WhenDone::Shutdown;
     const auto parsed = dm::parseSettings(dm::serializeSettings(settings));
     CHECK(parsed.downloadFolder == "D:\\Baixados" && parsed.connections == 16);
     CHECK(parsed.language == dm::LanguageSetting::English && !parsed.closeToTray);
-    CHECK(parsed.startWithWindows && parsed.notifyOnComplete);
+    CHECK(parsed.startWithWindows && parsed.notifyOnComplete && parsed.keepAwake);
+    CHECK(parsed.maxDownloads == 5 && parsed.speedLimitKBps == 300 && parsed.scheduleEnabled);
+    CHECK(parsed.scheduleStart == 23 * 60 && parsed.scheduleEnd == 6 * 60 + 30);
+    CHECK(parsed.whenDone == dm::WhenDone::Nothing);  // não é salvo
     CHECK(dm::parseSettings("connections=500\n").connections == 32);
     CHECK(dm::parseSettings("").connections == 8);
+}
+
+void testRateLimiter() {
+    using namespace std::chrono;
+    dm::RateLimiter limiter;
+    const auto start = dm::RateLimiter::Clock::time_point{} + hours(1);
+    CHECK(limiter.consume(1'000'000, start) == nanoseconds::zero());  // sem limite
+
+    limiter.setRate(100'000);  // 100 KB/s, rajada de 25 KB
+    CHECK(limiter.consume(25'000, start) == nanoseconds::zero());
+    // Mais 50 KB sem esperar: falta 0,5 s de fichas.
+    CHECK(duration_cast<milliseconds>(limiter.consume(50'000, start)).count() == 500);
+    // Passado 1 s, recuperou 100 KB mas a rajada máxima é 25 KB: saldo -50 + 25 + ... limitado.
+    const auto wait = limiter.consume(10'000, start + seconds(1));
+    CHECK(wait == nanoseconds::zero());
+
+    // Ao longo de 10 s, a vazão média fica no limite.
+    dm::RateLimiter steady;
+    steady.setRate(200'000);
+    auto now = start;
+    int64_t total = 0;
+    while (now < start + seconds(10)) {
+        total += 16'384;
+        now += steady.consume(16'384, now) + milliseconds(1);
+    }
+    CHECK(total > 1'900'000 && total < 2'200'000);
+}
+
+void testSchedule() {
+    CHECK(dm::scheduleAllows(false, 0, 0, 123));
+    CHECK(dm::scheduleAllows(true, 2 * 60, 8 * 60, 3 * 60));
+    CHECK(!dm::scheduleAllows(true, 2 * 60, 8 * 60, 8 * 60));
+    CHECK(!dm::scheduleAllows(true, 2 * 60, 8 * 60, 12 * 60));
+    // Atravessando a meia-noite: 23:00 às 07:00.
+    CHECK(dm::scheduleAllows(true, 23 * 60, 7 * 60, 23 * 60 + 30));
+    CHECK(dm::scheduleAllows(true, 23 * 60, 7 * 60, 60));
+    CHECK(!dm::scheduleAllows(true, 23 * 60, 7 * 60, 12 * 60));
+    CHECK(dm::scheduleAllows(true, 5 * 60, 5 * 60, 12 * 60));
+
+    CHECK(dm::parseTimeOfDay("07:30") == 450);
+    CHECK(dm::parseTimeOfDay("24:00") == -1);
+    CHECK(dm::parseTimeOfDay("abc") == -1);
+    CHECK(dm::formatTimeOfDay(450) == "07:30");
 }
 
 }  // namespace
@@ -217,6 +271,8 @@ int main() {
     testConcurrentCoverage();
     testDownloadList();
     testSettings();
+    testRateLimiter();
+    testSchedule();
 
     if (g_failures == 0) std::printf("Todos os testes passaram.\n");
     return g_failures == 0 ? 0 : 1;

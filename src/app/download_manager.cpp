@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "app/system.h"
+#include "core/rate_limiter.h"
 #include "util/file_io.h"
 #include "util/unicode.h"
 
@@ -30,9 +31,77 @@ void DownloadManager::load() {
         item->record = std::move(record);
         items_.push_back(std::move(item));
     }
+    // O que estava baixando ou na fila volta para a fila; advanceQueue() começa respeitando as vagas.
     for (auto& item : items_) {
-        if (item->record.state == dm::RecordState::Active) startTask(*item);
+        if (item->record.state == dm::RecordState::Active) item->record.state = dm::RecordState::Queued;
     }
+    advanceQueue();
+}
+
+void DownloadManager::setMaxRunning(int count) {
+    maxRunning_ = std::max(count, 1);
+}
+
+void DownloadManager::setSchedule(bool enabled, int startMinute, int endMinute) {
+    scheduleEnabled_ = enabled;
+    scheduleStart_ = startMinute;
+    scheduleEnd_ = endMinute;
+}
+
+void DownloadManager::setGlobalSpeedLimit(int64_t bytesPerSecond) {
+    globalLimiter_->setRate(bytesPerSecond);
+}
+
+int DownloadManager::runningCount() const {
+    int count = 0;
+    for (const auto& item : items_) count += item->running() ? 1 : 0;
+    return count;
+}
+
+bool DownloadManager::idle() const {
+    for (const auto& item : items_) {
+        if (item->running() || item->queued()) return false;
+    }
+    return true;
+}
+
+bool DownloadManager::scheduleOpen() const {
+    SYSTEMTIME now;
+    GetLocalTime(&now);
+    return dm::scheduleAllows(scheduleEnabled_, scheduleStart_, scheduleEnd_, now.wHour * 60 + now.wMinute);
+}
+
+void DownloadManager::enqueue(DownloadItem& item) {
+    stopTask(item);
+    item.record.state = dm::RecordState::Queued;
+    item.record.errorCode = 0;
+}
+
+bool DownloadManager::advanceQueue() {
+    bool changed = false;
+    const bool open = scheduleOpen();
+
+    if (!open) {
+        // Fora do horário: o que não foi forçado volta para a fila.
+        for (auto& item : items_) {
+            if (item->running() && !item->forced && !item->pausedBySchedule) {
+                item->pausedBySchedule = true;
+                item->task->pause();
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    int running = runningCount();
+    for (auto& item : items_) {
+        if (running >= maxRunning_) break;
+        if (!item->queued()) continue;
+        startTask(*item);
+        ++running;
+        changed = true;
+    }
+    return changed;
 }
 
 void DownloadManager::save() {
@@ -53,8 +122,9 @@ uint64_t DownloadManager::add(const std::string& url, const std::wstring& direct
     item->record.connections = connections;
     item->record.addedAt = unixNow();
     const uint64_t id = item->record.id;
-    startTask(*item);
+    item->record.state = dm::RecordState::Queued;
     items_.push_back(std::move(item));
+    advanceQueue();
     save();
     return id;
 }
@@ -62,14 +132,36 @@ uint64_t DownloadManager::add(const std::string& url, const std::wstring& direct
 void DownloadManager::resume(uint64_t id) {
     DownloadItem* item = find(id);
     if (!item || item->completed() || item->running()) return;
+    enqueue(*item);
+    advanceQueue();
+    save();
+}
+
+void DownloadManager::startNow(uint64_t id) {
+    DownloadItem* item = find(id);
+    if (!item || item->completed() || item->running()) return;
     startTask(*item);
+    item->forced = true;
     save();
 }
 
 void DownloadManager::pause(uint64_t id) {
     DownloadItem* item = find(id);
-    if (!item || !item->task) return;
-    item->task->pause();
+    if (!item) return;
+    if (item->task) {
+        item->task->pause();
+    } else if (item->queued()) {
+        item->record.state = dm::RecordState::Paused;
+        save();
+    }
+}
+
+void DownloadManager::setSpeedLimit(uint64_t id, int64_t bytesPerSecond) {
+    DownloadItem* item = find(id);
+    if (!item) return;
+    item->record.speedLimit = std::max<int64_t>(bytesPerSecond, 0);
+    if (item->task) item->task->setSpeedLimit(item->record.speedLimit);
+    save();
 }
 
 void DownloadManager::remove(uint64_t id, bool deleteFiles) {
@@ -92,21 +184,23 @@ bool DownloadManager::changeUrl(uint64_t id, const std::string& url) {
     if (!item || item->completed() || item->running()) return false;
     stopTask(*item);
     item->record.url = url;
-    startTask(*item);
+    enqueue(*item);
+    advanceQueue();
     save();
     return true;
 }
 
 void DownloadManager::shutdown() {
     for (auto& item : items_) {
-        if (item->running()) item->record.state = dm::RecordState::Active;
+        if (item->running() || item->pausedBySchedule) item->record.state = dm::RecordState::Active;
         if (item->task) item->task->pause();
     }
     for (auto& item : items_) {
         if (!item->task) continue;
         const bool wasActive = item->record.state == dm::RecordState::Active;
         stopTask(*item);
-        if (wasActive && !item->completed()) item->record.state = dm::RecordState::Active;
+        // Volta na próxima vez (como fila: respeita vagas e horário).
+        if (wasActive && !item->completed()) item->record.state = dm::RecordState::Queued;
     }
     if (!items_.empty()) save();
 }
@@ -138,7 +232,13 @@ bool DownloadManager::tick() {
                 record.errorDetail = item->live.errorDetail;
                 break;
             case dm::DownloadStatus::Paused:
-                record.state = dm::RecordState::Paused;
+                if (item->pausedBySchedule) {
+                    item->pausedBySchedule = false;
+                    enqueue(*item);
+                } else {
+                    record.state = dm::RecordState::Paused;
+                }
+                item->forced = false;
                 break;
             default:
                 record.state = dm::RecordState::Active;
@@ -146,6 +246,7 @@ bool DownloadManager::tick() {
                 break;
         }
     }
+    if (advanceQueue()) changed = true;
     if (changed || ++ticksSinceSave_ >= kSaveEveryTicks) save();
     return changed;
 }
@@ -162,6 +263,8 @@ void DownloadManager::startTask(DownloadItem& item) {
     dm::DownloadOptions options;
     options.url = item.record.url;
     options.connections = item.record.connections;
+    options.speedLimit = item.record.speedLimit;
+    options.sharedLimiter = globalLimiter_;
     if (!item.record.filePath.empty()) {
         // Já sabemos o arquivo: mira nele, para continuar de onde parou.
         const std::wstring path = dm::toWide(item.record.filePath);
@@ -192,6 +295,8 @@ void DownloadManager::stopTask(DownloadItem& item) {
     }
     item.task.reset();
     item.live = {};
+    item.forced = false;
+    item.pausedBySchedule = false;
 }
 
 }  // namespace app

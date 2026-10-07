@@ -25,6 +25,8 @@ private:
     INT_PTR handleMessage(UINT message, WPARAM wParam, LPARAM lParam);
     void fillControls();
     void notify();
+    void setTime(int controlId, int minutes);
+    int readTime(int controlId) const;
 
     HWND dialog_ = nullptr;
     dm::Settings settings_;

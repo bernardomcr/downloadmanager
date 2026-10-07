@@ -1,5 +1,5 @@
 // dm-cli: usa o mesmo motor do app pela linha de comando. Serve para testar o motor e para scripts.
-//   dm-cli <link> [pasta] [--conexoes N] [--nome arquivo]
+//   dm-cli <link> [pasta] [--conexoes N] [--nome arquivo] [--limite KB/s]
 // Ctrl+C pausa e salva o progresso; rodar o mesmo comando de novo continua de onde parou.
 #include <windows.h>
 
@@ -65,6 +65,8 @@ int wmain(int argc, wchar_t** argv) {
         const std::wstring argument = argv[i];
         if ((argument == L"--conexoes" || argument == L"--connections") && i + 1 < argc) {
             options.connections = _wtoi(argv[++i]);
+        } else if ((argument == L"--limite" || argument == L"--limit") && i + 1 < argc) {
+            options.speedLimit = static_cast<int64_t>(_wtoi(argv[++i])) * 1024;
         } else if ((argument == L"--nome" || argument == L"--name") && i + 1 < argc) {
             options.fileName = argv[++i];
         } else if (options.url.empty()) {

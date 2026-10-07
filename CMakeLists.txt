@@ -21,6 +21,7 @@ add_library(dm_core STATIC
     src/core/download_list.cpp
     src/core/format.cpp
     src/core/http_headers.cpp
+    src/core/rate_limiter.cpp
     src/core/resume_state.cpp
     src/core/segments.cpp
     src/core/settings.cpp
@@ -63,7 +64,7 @@ if(WIN32)
         res/app.rc
     )
     target_include_directories(DownloadManager PRIVATE res)
-    target_link_libraries(DownloadManager PRIVATE dm_engine comctl32 uxtheme shell32 ole32 uuid)
+    target_link_libraries(DownloadManager PRIVATE dm_engine comctl32 uxtheme shell32 ole32 uuid powrprof)
 
     add_executable(dm-cli
         src/cli/main.cpp

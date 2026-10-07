@@ -26,6 +26,11 @@ void copyToClipboard(HWND owner, const std::wstring& text);
 // Diálogo do Windows para escolher pasta; vazio se cancelado.
 std::wstring chooseFolder(HWND owner, const std::wstring& title, const std::wstring& initial);
 
+// Enquanto ligado, o Windows não suspende por inatividade (a tela ainda pode apagar).
+void keepSystemAwake(bool enabled);
+bool shutdownComputer();
+bool sleepComputer();
+
 int64_t unixNow();
 // Data e hora curtas no formato do usuário.
 std::wstring formatDateTime(int64_t unixSeconds);

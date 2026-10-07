@@ -32,6 +32,15 @@ void SettingsPage::applyTexts() {
     SetDlgItemTextW(dialog_, IDC_SET_CLOSE_TO_TRAY, tr(Str::SettingsCloseToTray));
     SetDlgItemTextW(dialog_, IDC_SET_START_WITH_WINDOWS, tr(Str::SettingsStartWithWindows));
     SetDlgItemTextW(dialog_, IDC_SET_NOTIFY, tr(Str::SettingsNotify));
+    SetDlgItemTextW(dialog_, IDC_SET_KEEP_AWAKE, tr(Str::SettingsKeepAwake));
+    SetDlgItemTextW(dialog_, IDC_SET_MAX_DOWNLOADS_LABEL, tr(Str::SettingsMaxDownloads));
+    SetDlgItemTextW(dialog_, IDC_SET_SPEED_LIMIT_LABEL, tr(Str::SettingsSpeedLimit));
+    SetDlgItemTextW(dialog_, IDC_SET_SCHEDULE, tr(Str::SettingsSchedule));
+    SetDlgItemTextW(dialog_, IDC_SET_SCHEDULE_AND, tr(Str::SettingsScheduleAnd));
+    SetDlgItemTextW(dialog_, IDC_SET_WHEN_DONE_LABEL, tr(Str::SettingsWhenDone));
+    for (int id : {IDC_SET_SCHEDULE_START, IDC_SET_SCHEDULE_END}) {
+        SendDlgItemMessageW(dialog_, id, DTM_SETFORMATW, 0, reinterpret_cast<LPARAM>(L"HH':'mm"));
+    }
     fillControls();
 }
 
@@ -55,7 +64,41 @@ void SettingsPage::fillControls() {
     CheckDlgButton(dialog_, IDC_SET_CLOSE_TO_TRAY, settings_.closeToTray ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog_, IDC_SET_START_WITH_WINDOWS, settings_.startWithWindows ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog_, IDC_SET_NOTIFY, settings_.notifyOnComplete ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(dialog_, IDC_SET_KEEP_AWAKE, settings_.keepAwake ? BST_CHECKED : BST_UNCHECKED);
+
+    SendDlgItemMessageW(dialog_, IDC_SET_MAX_DOWNLOADS_SPIN, UDM_SETRANGE32, 1, 10);
+    SendDlgItemMessageW(dialog_, IDC_SET_MAX_DOWNLOADS_SPIN, UDM_SETPOS32, 0, settings_.maxDownloads);
+    SetDlgItemInt(dialog_, IDC_SET_SPEED_LIMIT, static_cast<UINT>(settings_.speedLimitKBps), FALSE);
+
+    CheckDlgButton(dialog_, IDC_SET_SCHEDULE, settings_.scheduleEnabled ? BST_CHECKED : BST_UNCHECKED);
+    setTime(IDC_SET_SCHEDULE_START, settings_.scheduleStart);
+    setTime(IDC_SET_SCHEDULE_END, settings_.scheduleEnd);
+    EnableWindow(GetDlgItem(dialog_, IDC_SET_SCHEDULE_START), settings_.scheduleEnabled);
+    EnableWindow(GetDlgItem(dialog_, IDC_SET_SCHEDULE_END), settings_.scheduleEnabled);
+
+    HWND whenDone = GetDlgItem(dialog_, IDC_SET_WHEN_DONE);
+    SendMessageW(whenDone, CB_RESETCONTENT, 0, 0);
+    for (Str option : {Str::WhenDoneNothing, Str::WhenDoneSleep, Str::WhenDoneShutdown}) {
+        SendMessageW(whenDone, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(option)));
+    }
+    SendMessageW(whenDone, CB_SETCURSEL, static_cast<WPARAM>(settings_.whenDone), 0);
     filling_ = false;
+}
+
+void SettingsPage::setTime(int controlId, int minutes) {
+    SYSTEMTIME time;
+    GetLocalTime(&time);
+    time.wHour = static_cast<WORD>(minutes / 60);
+    time.wMinute = static_cast<WORD>(minutes % 60);
+    time.wSecond = 0;
+    time.wMilliseconds = 0;
+    SendDlgItemMessageW(dialog_, controlId, DTM_SETSYSTEMTIME, GDT_VALID, reinterpret_cast<LPARAM>(&time));
+}
+
+int SettingsPage::readTime(int controlId) const {
+    SYSTEMTIME time{};
+    SendDlgItemMessageW(dialog_, controlId, DTM_GETSYSTEMTIME, 0, reinterpret_cast<LPARAM>(&time));
+    return time.wHour * 60 + time.wMinute;
 }
 
 void SettingsPage::notify() {
@@ -74,8 +117,17 @@ INT_PTR CALLBACK SettingsPage::dialogProc(HWND dialog, UINT message, WPARAM wPar
     return self ? self->handleMessage(message, wParam, lParam) : FALSE;
 }
 
-INT_PTR SettingsPage::handleMessage(UINT message, WPARAM wParam, LPARAM /*lParam*/) {
+INT_PTR SettingsPage::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     if (const INT_PTR brush = whiteBackground(message, wParam)) return brush;
+    if (message == WM_NOTIFY && !filling_) {
+        const auto* header = reinterpret_cast<const NMHDR*>(lParam);
+        if (header->code == DTN_DATETIMECHANGE) {
+            settings_.scheduleStart = readTime(IDC_SET_SCHEDULE_START);
+            settings_.scheduleEnd = readTime(IDC_SET_SCHEDULE_END);
+            notify();
+        }
+        return FALSE;
+    }
     if (message != WM_COMMAND || filling_) return FALSE;
 
     const int id = LOWORD(wParam);
@@ -129,6 +181,46 @@ INT_PTR SettingsPage::handleMessage(UINT message, WPARAM wParam, LPARAM /*lParam
         case IDC_SET_NOTIFY:
             settings_.notifyOnComplete = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
             notify();
+            return TRUE;
+        case IDC_SET_KEEP_AWAKE:
+            settings_.keepAwake = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
+            notify();
+            return TRUE;
+        case IDC_SET_MAX_DOWNLOADS:
+            if (code == EN_CHANGE) {
+                BOOL valid = FALSE;
+                const UINT value = GetDlgItemInt(dialog_, IDC_SET_MAX_DOWNLOADS, &valid, FALSE);
+                if (valid && value >= 1 && value <= 10 && static_cast<int>(value) != settings_.maxDownloads) {
+                    settings_.maxDownloads = static_cast<int>(value);
+                    notify();
+                }
+            }
+            return TRUE;
+        case IDC_SET_SPEED_LIMIT:
+            if (code == EN_CHANGE) {
+                BOOL valid = FALSE;
+                const UINT value = GetDlgItemInt(dialog_, IDC_SET_SPEED_LIMIT, &valid, FALSE);
+                const int64_t limit = valid ? value : 0;
+                if (limit != settings_.speedLimitKBps) {
+                    settings_.speedLimitKBps = limit;
+                    notify();
+                }
+            }
+            return TRUE;
+        case IDC_SET_SCHEDULE:
+            settings_.scheduleEnabled = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
+            EnableWindow(GetDlgItem(dialog_, IDC_SET_SCHEDULE_START), settings_.scheduleEnabled);
+            EnableWindow(GetDlgItem(dialog_, IDC_SET_SCHEDULE_END), settings_.scheduleEnabled);
+            notify();
+            return TRUE;
+        case IDC_SET_WHEN_DONE:
+            if (code == CBN_SELCHANGE) {
+                const auto selected = SendDlgItemMessageW(dialog_, IDC_SET_WHEN_DONE, CB_GETCURSEL, 0, 0);
+                if (selected >= 0) {
+                    settings_.whenDone = static_cast<dm::WhenDone>(selected);
+                    notify();
+                }
+            }
             return TRUE;
     }
     return FALSE;

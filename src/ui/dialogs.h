@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <string>
 
 namespace ui {
@@ -17,6 +18,9 @@ bool showAddDialog(HWND owner, AddRequest& request);
 
 // Diálogo "Trocar link". `url` entra com o link atual.
 bool showChangeUrlDialog(HWND owner, std::wstring& url);
+
+// Diálogo "Limite de velocidade" de um download. `kilobytesPerSecond` entra com o valor atual (0 = sem limite).
+bool showSpeedLimitDialog(HWND owner, int64_t& kilobytesPerSecond);
 
 // Fundo branco para diálogos e para os textos/caixas de seleção dentro deles.
 // Devolve o pincel a usar, ou nullptr se a mensagem não for de cor.

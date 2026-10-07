@@ -4,6 +4,8 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 
+#include <powrprof.h>
+
 #include <ctime>
 
 namespace app {
@@ -113,6 +115,39 @@ std::wstring chooseFolder(HWND owner, const std::wstring& title, const std::wstr
     }
     dialog->Release();
     return result;
+}
+
+void keepSystemAwake(bool enabled) {
+    SetThreadExecutionState(enabled ? ES_CONTINUOUS | ES_SYSTEM_REQUIRED : ES_CONTINUOUS);
+}
+
+namespace {
+
+// Desligar/suspender exige o privilégio de desligamento ligado no processo.
+bool enableShutdownPrivilege() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) return false;
+    TOKEN_PRIVILEGES privileges{};
+    privileges.PrivilegeCount = 1;
+    privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    const bool ok = LookupPrivilegeValueW(nullptr, SE_SHUTDOWN_NAME, &privileges.Privileges[0].Luid) &&
+                    AdjustTokenPrivileges(token, FALSE, &privileges, 0, nullptr, nullptr) &&
+                    GetLastError() == ERROR_SUCCESS;
+    CloseHandle(token);
+    return ok;
+}
+
+}  // namespace
+
+bool shutdownComputer() {
+    enableShutdownPrivilege();
+    return ExitWindowsEx(EWX_POWEROFF | EWX_FORCEIFHUNG,
+                         SHTDN_REASON_MAJOR_APPLICATION | SHTDN_REASON_MINOR_OTHER | SHTDN_REASON_FLAG_PLANNED) != 0;
+}
+
+bool sleepComputer() {
+    enableShutdownPrivilege();
+    return SetSuspendState(FALSE, FALSE, FALSE) != 0;
 }
 
 int64_t unixNow() {

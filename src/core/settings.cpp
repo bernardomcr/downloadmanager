@@ -1,6 +1,7 @@
 #include "core/settings.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <sstream>
 
 namespace dm {
@@ -17,6 +18,12 @@ std::string serializeSettings(const Settings& settings) {
     out << "close-to-tray=" << (settings.closeToTray ? 1 : 0) << '\n';
     out << "start-with-windows=" << (settings.startWithWindows ? 1 : 0) << '\n';
     out << "notify-on-complete=" << (settings.notifyOnComplete ? 1 : 0) << '\n';
+    out << "keep-awake=" << (settings.keepAwake ? 1 : 0) << '\n';
+    out << "max-downloads=" << settings.maxDownloads << '\n';
+    out << "speed-limit-kbps=" << settings.speedLimitKBps << '\n';
+    out << "schedule=" << (settings.scheduleEnabled ? 1 : 0) << '\n';
+    out << "schedule-start=" << formatTimeOfDay(settings.scheduleStart) << '\n';
+    out << "schedule-end=" << formatTimeOfDay(settings.scheduleEnd) << '\n';
     return out.str();
 }
 
@@ -47,9 +54,41 @@ Settings parseSettings(const std::string& text) {
             settings.startWithWindows = value != "0";
         } else if (key == "notify-on-complete") {
             settings.notifyOnComplete = value != "0";
+        } else if (key == "keep-awake") {
+            settings.keepAwake = value != "0";
+        } else if (key == "max-downloads") {
+            std::istringstream number(value);
+            int count = 0;
+            if (number >> count) settings.maxDownloads = std::clamp(count, 1, 10);
+        } else if (key == "speed-limit-kbps") {
+            std::istringstream number(value);
+            int64_t limit = 0;
+            if (number >> limit) settings.speedLimitKBps = std::max<int64_t>(limit, 0);
+        } else if (key == "schedule") {
+            settings.scheduleEnabled = value == "1";
+        } else if (key == "schedule-start" || key == "schedule-end") {
+            const int minutes = parseTimeOfDay(value);
+            if (minutes >= 0) (key == "schedule-start" ? settings.scheduleStart : settings.scheduleEnd) = minutes;
         }
     }
     return settings;
+}
+
+int parseTimeOfDay(const std::string& text) {
+    int hours = 0;
+    int minutes = 0;
+    char separator = 0;
+    std::istringstream in(text);
+    if (!(in >> hours >> separator >> minutes) || separator != ':') return -1;
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return -1;
+    return hours * 60 + minutes;
+}
+
+std::string formatTimeOfDay(int minutes) {
+    minutes = std::clamp(minutes, 0, 24 * 60 - 1);
+    char text[8];
+    std::snprintf(text, sizeof(text), "%02d:%02d", minutes / 60, minutes % 60);
+    return text;
 }
 
 }  // namespace dm

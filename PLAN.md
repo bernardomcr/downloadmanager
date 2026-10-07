@@ -51,7 +51,7 @@ app.exe (um único processo)
 0. **Fundação** ✅ — repo, CMake/vcpkg, CI Windows, esqueleto da janela.
 1. **Engine HTTP** ✅ — multi-conexão com divisão dinâmica de segmentos, pausar/retomar, retomada após travamento, validação por tamanho/ETag, troca de link expirado (no motor; a UI vem na fase 2), `dm-cli`.
 2. **Interface** ✅ — janela principal com abas (com contadores), diálogo "Adicionar", barra de progresso/velocidade/tempo restante, menu de clique direito (pausar, continuar, trocar link, copiar link, abrir pasta, remover, apagar para a Lixeira), bandeja, aviso de concluído, Configurações (pasta, conexões, idioma ao vivo, bandeja, iniciar com o Windows, avisos), retomada automática ao reabrir.
-3. **Fila e agendador** — downloads simultâneos, agendamento, limite de banda, desligar ao concluir.
+3. **Fila e agendador** ✅ — limite de downloads ao mesmo tempo (fila), "Começar agora", agendador por horário (atravessa a meia-noite), limite de velocidade total e por download, não deixar o PC dormir enquanto baixa, suspender/desligar quando tudo terminar (com contagem regressiva de 60 s e Cancelar; vale uma vez).
 4. **Navegador** — extensão capturando downloads (cookies/referer) e vídeos.
 5. **Vídeos** — yt-dlp integrado, escolha de qualidade, playlists.
 6. **Torrent** — magnet/.torrent, seleção de arquivos, seed configurável.
