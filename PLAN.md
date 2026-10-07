@@ -64,15 +64,52 @@ Lista de regras "SE → ENTÃO", avaliadas na ordem, a primeira que casa vence.
 - **ENTÃO**: salvar na pasta X, renomear com padrão, limite de velocidade/conexões, iniciar agora ou agendar, depois de concluir: extrair, abrir, abrir pasta, apagar o compactado, rodar comando.
 - Vem com regras padrão (equivalente às categorias do IDM): Compactados, Documentos, Músicas, Programas, Vídeos, Torrents.
 
-## Cursos (inspirado no katomart, versão simplificada)
-Referência analisada: katomart (Python, ~34 mil linhas, 61 adaptadores de plataforma, login por e-mail/senha/token, Playwright para capturar token, fluxo Plataforma → Login → Cursos → Módulos → Download).
-Não reaproveitamos código (repo sem arquivo de licença). Aproveitamos as ideias, simplificando:
-- **Sem tela de login**: o usuário abre o curso no navegador onde já está logado e clica no botão da extensão → "Baixar este curso".
-- **Adaptadores na extensão**: cada plataforma é um pequeno script JS que roda com a sessão do próprio navegador e devolve a árvore Curso → Módulos → Aulas (vídeo, anexos, legendas, descrição). Nada de Playwright, token ou senha salva.
-- **No app**: aparece uma lista com caixas de seleção (módulos/aulas, tudo marcado) → Baixar. Estrutura em disco: `Curso/01. Módulo/01. Aula.mp4` + anexos.
-- **Genérico**: em sites sem adaptador, a extensão lista os vídeos/streams (HLS/DASH/MP4) encontrados na página aberta.
-- **Sem DRM**: vídeo com Widevine é detectado e marcado como "protegido — não é possível baixar". Sem CDM, sem mp4decrypt.
-- **Cuidado com a conta**: velocidade conservadora por padrão para não acionar bloqueio da plataforma.
+## Cursos (estrutura do katomart, otimizada)
+Referência: katomart (Python, 61 adaptadores de plataforma). Reescrita própria — o repo não tem arquivo de licença, então nada é copiado literalmente.
+
+### Fluxo (mantido do katomart)
+Plataforma → Login/Token → Cursos (lista/busca) → Módulos/Aulas → Seleção → Download.
+
+### Adaptadores de plataforma
+- **Todas as 61 plataformas** do katomart.
+- Escritos em **JavaScript**, rodando num interpretador embutido no app (QuickJS, ~1 MB). Assim um adaptador quebrado é corrigido sem lançar versão nova do app: o app baixa o pacote de adaptadores atualizado.
+- Interface de cada adaptador (equivalente ao `BasePlatform` do katomart):
+  `authFields()`, `authenticate(credenciais)`, `refreshAuth()`, `fetchCourses()`, `searchCourses(q)`, `fetchCourseContent(cursos)`, `fetchLessonDetails(aula)`, `downloadAttachment(anexo)`.
+- Downloaders de vídeo por hospedagem (Panda, Bunny, Gumlet, ScaleUp, Spalla, SafeVideo, Vimeo/YouTube via yt-dlp etc.) separados dos adaptadores, como no katomart.
+
+### Login e token automáticos (otimização)
+Ordem de tentativa, sem o usuário precisar caçar token:
+1. **Sessão do navegador**: a extensão lê o token/cookies da plataforma onde o usuário já está logado e envia ao app.
+2. **Login embutido**: o app abre uma janelinha WebView2 (já vem no Windows) na página de login da plataforma; o usuário entra normalmente e o app captura o token sozinho (substitui o Playwright do katomart, sem baixar navegador).
+3. **E-mail e senha** direto pela API da plataforma, quando ela permitir.
+4. **Token manual** — último recurso.
+- Credenciais e tokens salvos **criptografados com o Windows (DPAPI)**, nunca em texto puro (o katomart salva em texto puro).
+- Re-autenticação automática ao receber 401/403.
+
+### Seleção do que baixar
+Árvore com caixas de seleção mostrando tudo que existe em cada aula: vídeo, anexos, legendas, descrição, links extras, vídeos linkados na descrição (YouTube/Vimeo), áudio/podcast. O usuário marca o que quer. Atalhos: "marcar tudo", "só vídeos", "só anexos".
+
+### Fora do escopo
+- Marcar aula como assistida — removido.
+- Transcrição (Whisper) — removido.
+- **DRM (Widevine etc.)**: o app detecta conteúdo protegido e mostra a aula como "protegida — não baixada". Nenhuma parte de quebra de DRM faz parte deste projeto.
+
+### Padrões de velocidade (iguais ao katomart)
+| Configuração | Padrão |
+|---|---|
+| Segmentos simultâneos por vídeo | 1 (recomendado até 8, aviso acima de 20) |
+| Tentativas extras | 0 |
+| Espera entre tentativas | 60 s |
+| Espera entre aulas | 0 s |
+| Timeout de requisição | 30 s |
+| Limites de nome (curso/módulo/aula/arquivo) | 40 / 60 / 60 / 30 caracteres |
+| Pausar após X erros / X aulas parciais | 0 (desligado) |
+| Pular arquivos já baixados | Sim |
+
+## Extensão do navegador
+- Firefox: assinatura "não listada" na Mozilla (grátis), `.xpi` distribuído pelo instalador.
+- Edge: publicação não listada (grátis).
+- Chrome: pacote pronto para publicar, publicação opcional (taxa única de US$ 5). Até lá, instala em modo desenvolvedor.
 
 ## Em aberto
-- Ver rodada 4 no chat.
+- Nada. Próximo passo: Fase 0.
