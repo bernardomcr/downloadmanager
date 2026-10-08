@@ -19,7 +19,7 @@
 | Linguagem | C++20 (mesma família do IDM) |
 | Interface | Win32 nativo (sem Electron/WebView/.NET) — janela branca, pequena, abas com nomes claros |
 | Vídeos | Sim — yt-dlp (YouTube + ~1800 sites) + farejador de streams HLS/DASH na extensão; login via cookies do navegador. Sem burlar DRM. Referência: katomart (só como inspiração de funcionalidades; código não reaproveitado) |
-| Torrent | **Fora do projeto** (decisão do usuário: usa outras ferramentas para torrent; não vale o esforço nem o peso da libtorrent) |
+| Torrent | Sem cliente de torrent próprio (libtorrent não vale o peso). Torrents e links magnet vão para um serviço de debrid (Real-Debrid primeiro) e voltam como download direto: ver Fase 9 |
 | Regras automáticas | Sim |
 | Sincronizar filas | Não |
 
@@ -125,5 +125,22 @@ Ordem de tentativa, sem o usuário precisar caçar token:
 - Edge: publicação não listada (grátis).
 - Chrome: pacote pronto para publicar, publicação opcional (taxa única de US$ 5). Até lá, instala em modo desenvolvedor.
 
+## Fase 9 (pedidos de 08/10/2026) — a fazer, testando no Windows de verdade
+Daqui em diante o trabalho é numa sessão local do Claude Code no PC do usuário (Windows), não mais no Wine: compilar com MSVC, abrir o app e a extensão no Firefox de verdade.
+
+1. **Interface mais "premium", sem perder o minimalismo**
+   - Fundo levemente cinza em vez de branco puro (algo como `#F5F6F8`, com listas/cartões um tom mais claro), mantendo contraste e o modo claro do Windows.
+   - Barra de progresso mais bonita e detalhada: cantos arredondados, preenchimento com leve gradiente, cor por estado (baixando / pausado / erro / concluído), e dentro ou ao lado dela o essencial (porcentagem; opcionalmente as partes das conexões em paralelo, discretas).
+   - Mudança discreta: mesmas abas, mesmo layout, sem animações chamativas. Medidas em pixels lógicos com `scale()`.
+2. **Diálogo de download (o que abre quando o navegador manda um download)**
+   - Não mostrar o link cru em destaque: quando o pedido vem do navegador, o link fica escondido (no máximo uma linha curta com o nome do site, ou um "Mostrar link"). No "Adicionar" manual o campo de link continua, claro.
+   - Mostrar desde o início onde vai ser salvo DE VERDADE: se uma regra vai mandar para uma subpasta (Downloads\Vídeos, Downloads\Compactados...), o campo "Salvar em" já mostra essa subpasta (usar `dm::matchRule` com o nome e a URL ao abrir o diálogo; atualizar quando o nome mudar). Se o usuário trocar a pasta, a escolha dele vale e a regra não move depois.
+3. **Integração com debrid (Real-Debrid primeiro; Torbox e outros depois)**
+   - Configurações: conectar a conta com o token da API do Real-Debrid (guardado com DPAPI, como os cabeçalhos), mostrar a conta/validade, botão de testar e desconectar.
+   - Entrada: link `magnet:` colado no Adicionar, arquivo `.torrent` (abrir/arrastar/associação opcional) e magnet/torrent capturado pela extensão (hoje só http/https passa em `browser_request.cpp`: liberar `magnet:` com validação).
+   - Fluxo: envia o magnet/torrent para o Real-Debrid (`/torrents/addMagnet` ou `/torrents/addTorrent`), seleciona os arquivos (todos por padrão, ou deixar escolher quando forem vários), acompanha o progresso do RD na lista ("No Real-Debrid: 45%"), e quando estiver pronto pega os links (`/unrestrict/link`) e baixa como download direto normal, com as regras de organização valendo.
+   - Erros traduzidos (token inválido, torrent sem seeds no RD, limite da conta). Núcleo portátil e testado em `src/core/` (montar pedidos e ler as respostas JSON), rede em `src/engine/`.
+   - Fora do escopo: conteúdo com DRM continua não baixável.
+
 ## Em aberto
-- Nada. Próximo passo: Fase 0.
+- Fase 9 acima.
