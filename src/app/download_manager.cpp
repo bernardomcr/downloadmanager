@@ -530,6 +530,10 @@ void DownloadManager::startTask(DownloadItem& item) {
     options.url = item.record.url;
     options.connections = item.record.connections;
     options.speedLimit = item.record.speedLimit;
+    // Link direto do Real-Debrid ainda não começado: tamanho e nome vieram com o link (início rápido).
+    if (item.record.viaDebrid && item.record.totalSize > 0 && item.record.downloaded == 0 && item.record.filePath.empty()) {
+        options.knownSize = item.record.totalSize;
+    }
     options.sharedLimiter = globalLimiter_;
     options.headers = unprotectHeaders(item.record.protectedHeaders);
     options.rejectWebPages = rejectWebPages;

@@ -18,6 +18,7 @@ using namespace std::chrono_literals;
 constexpr size_t kBufferSize = 128 * 1024;
 constexpr auto kMonitorInterval = 100ms;
 constexpr auto kSpeedWindow = 1500ms;
+constexpr int kInitialConnections = 4;  // abertas juntas na largada (a rampa parte daqui)
 constexpr auto kRampStep = 1000ms;    // tempo mínimo de cada passo da rampa de conexões
 constexpr auto kRampMeasure = 700ms;  // parte final do passo usada para medir (conexões novas já aceleraram)
 constexpr double kRampGain = 1.20;    // continua dobrando só se o passo deixou o total 20% mais rápido
@@ -175,6 +176,22 @@ void DownloadTask::run() {
         currentUrl_ = options_.url;
     }
 
+    // Início rápido: tamanho e nome já conhecidos (link direto do Real-Debrid traz os dois). Todas as
+    // conexões saem juntas, sem esperar a resposta de uma sondagem: o servidor leva ~0,6 s para responder e
+    // ~2 s para engrenar cada pedido, e assim essa espera acontece uma vez só, em paralelo. Cada conexão
+    // confere o tamanho na resposta. Retomada (já existe .dmpart) usa o caminho normal, com sondagem.
+    if (options_.knownSize > 0 && !options_.fileName.empty() && options_.connections > 1) {
+        const std::string name = sanitizeFileName(toUtf8(options_.fileName));
+        if (!fileExists(joinPath(options_.directory, toWide(name)) + kPartSuffix)) {
+            totalSize_ = options_.knownSize;
+            choosePaths(options_.knownSize, {}, {}, name);
+            runSegmented(nullptr, false);
+            planner_.reset();
+            session_.reset();
+            return;
+        }
+    }
+
     auto request = std::make_unique<HttpRequest>();
     registerRequest(request.get());
     if (!probe(*request)) {
@@ -227,8 +244,13 @@ bool DownloadTask::probe(HttpRequest& request) {
     bool switchedAgent = false;
     for (int attempt = 0;; ++attempt) {
         DWORD code = 0;
+        const auto probeStart = std::chrono::steady_clock::now();
         const bool sent = request.send(*session_, currentUrl_, options_.headers, 0, -1, code);
         const int sentStatus = sent ? request.response().status : 0;
+        if (GetEnvironmentVariableW(L"DM_DEBUG_SEGMENTS", nullptr, 0) > 0) {
+            std::fprintf(stderr, "[sonda] resposta %d em %.3fs\n", sentStatus,
+                         std::chrono::duration<double>(std::chrono::steady_clock::now() - probeStart).count());
+        }
         // Recusado logo de cara com o User-Agent do app: tenta já com o de navegador (uma vez só).
         if (!switchedAgent && options_.userAgent.empty() && !stopRequested_ && looksBlocked(sentStatus, sent ? 0 : code)) {
             switchedAgent = true;
@@ -326,12 +348,27 @@ void DownloadTask::runSegmented(std::unique_ptr<HttpRequest> probeRequest, bool 
         workers.emplace_back(&DownloadTask::worker, this, index, std::nullopt, nullptr);
     };
 
+    const bool debug = GetEnvironmentVariableW(L"DM_DEBUG_SEGMENTS", nullptr, 0) > 0;
+    const auto debugT0 = std::chrono::steady_clock::now();
+    auto debugMark = [&](const char* what) {
+        if (debug) std::fprintf(stderr, "[fim] %s em +%.3fs\n", what, std::chrono::duration<double>(std::chrono::steady_clock::now() - debugT0).count());
+    };
+    // Largada: várias conexões de uma vez (cada conexão TCP começa devagar e leva ~1-2 s para acelerar;
+    // em paralelo, o total acelera bem mais rápido). Depois a rampa decide se vale abrir mais.
+    {
+        const int initial = std::min(options_.connections, kInitialConnections);
+        for (int i = 1; i < initial; ++i) spawnWorker_();
+    }
     monitor();
+    debugMark("monitor saiu");
     spawnWorker_ = nullptr;
     for (auto& thread : workers) thread.join();
+    debugMark("conexoes encerradas");
 
     if (planner_->allComplete() && !pauseRequested_) {
-        if (finalizeFile()) {
+        const bool finalized = finalizeFile();
+        debugMark("arquivo finalizado");
+        if (finalized) {
             setStatus(DownloadStatus::Completed);
             return;
         }
@@ -560,12 +597,16 @@ void DownloadTask::monitor() {
     };
     std::deque<Sample> window{{Clock::now(), downloaded_.load()}};
     auto lastSave = window.front().time;
+    const bool debugProfile = GetEnvironmentVariableW(L"DM_DEBUG_SEGMENTS", nullptr, 0) > 0;
+    const auto debugBegin = window.front().time;
+    auto debugLast = debugBegin;
+    int64_t debugLastBytes = downloaded_;
 
     // Rampa de conexões: 1 -> 2 -> 4 -> 8 -> 16 enquanto cada passo deixar o total pelo menos 20% mais
     // rápido. Servidor que limita por conexão ganha todas; servidor que limita por usuário/IP (ou demora a
     // responder cada conexão nova, como o Real-Debrid) fica com poucas. Se o último passo piorou, volta.
     bool ramping = static_cast<bool>(spawnWorker_) && options_.connections > 1;
-    int spawned = 1;
+    int spawned = std::max(1, runningWorkers_.load());  // a largada já abriu algumas
     int bestCount = 1;
     double bestSpeed = 0;
     double previousMeasure = 0;
@@ -590,6 +631,16 @@ void DownloadTask::monitor() {
         const double seconds = std::chrono::duration<double>(now - window.front().time).count();
         if (seconds >= 0.25) {
             speed_ = static_cast<double>(window.back().bytes - window.front().bytes) / seconds;
+        }
+        if (debugProfile && now - debugLast >= std::chrono::milliseconds(500)) {
+            const int64_t bytes = downloaded_;
+            std::fprintf(stderr, "[perfil] %.1fs %.1f MB %.1f MB/s %d conexoes\n",
+                         std::chrono::duration<double>(now - debugBegin).count(), static_cast<double>(bytes) / 1e6,
+                         static_cast<double>(bytes - debugLastBytes) / 1e6 /
+                             std::chrono::duration<double>(now - debugLast).count(),
+                         runningWorkers_.load());
+            debugLast = now;
+            debugLastBytes = bytes;
         }
         // Dividir um pedaço só compensa se a conexão dona ainda levaria mais de ~8 s para terminá-lo:
         // cada conexão nova paga o tempo de resposta do servidor e começa devagar (no Real-Debrid, ~0,6 s +
@@ -617,9 +668,9 @@ void DownloadTask::monitor() {
                 // espera
             } else if (current > 0 && static_cast<double>(remaining) / current < kRampMinRemainingSeconds) {
                 ramping = false;  // termina logo com as conexões que já tem
-            } else if (spawned == 1 || current > bestSpeed * kRampGain) {
+            } else if (bestSpeed <= 0 || current > bestSpeed * kRampGain) {
                 // Quase dobrou no último passo (servidor limita por conexão): o próximo passo quadruplica.
-                const int factor = spawned > 1 && current > bestSpeed * 1.7 ? 4 : 2;
+                const int factor = bestSpeed > 0 && current > bestSpeed * 1.7 ? 4 : 2;
                 if (current > bestSpeed) {
                     bestSpeed = current;
                     bestCount = spawned;

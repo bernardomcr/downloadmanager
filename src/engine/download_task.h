@@ -35,6 +35,8 @@ struct DownloadOptions {
     int64_t minSplitSize = 512 * 1024;  // não divide restos menores que 2x isso
     int maxRetries = 5;                 // falhas seguidas sem progresso antes de desistir
     int64_t speedLimit = 0;             // bytes/s só deste download; 0 = sem limite
+    // Tamanho já conhecido (com fileName): todas as conexões começam juntas, sem sondagem (ver run()).
+    int64_t knownSize = -1;
     bool rejectWebPages = false;        // link colado pelo usuário: página HTML vira erro WebPage
     // Limite total, compartilhado por todos os downloads (opcional).
     std::shared_ptr<RateLimiter> sharedLimiter;

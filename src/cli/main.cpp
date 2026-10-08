@@ -185,6 +185,8 @@ int wmain(int argc, wchar_t** argv) {
             options.speedLimit = static_cast<int64_t>(_wtoi(argv[++i])) * 1024;
         } else if ((argument == L"--nome" || argument == L"--name") && i + 1 < argc) {
             options.fileName = argv[++i];
+        } else if ((argument == L"--tamanho" || argument == L"--size") && i + 1 < argc) {
+            options.knownSize = _wtoi64(argv[++i]);  // com --nome: início rápido (como os links do Real-Debrid)
         } else if (options.url.empty()) {
             options.url = dm::toUtf8(argument);
         } else if (options.directory.empty()) {
@@ -202,11 +204,15 @@ int wmain(int argc, wchar_t** argv) {
     SetConsoleCtrlHandler(onConsoleSignal, TRUE);
     task.start();
 
+    // Confere a cada 50 ms (o fim do download aparece na hora, e medir o tempo com o dm-cli é justo);
+    // a linha de progresso continua a cada 0,5 s.
     dm::DownloadProgress progress = task.progress();
-    while (progress.status == dm::DownloadStatus::Connecting || progress.status == dm::DownloadStatus::Downloading) {
-        Sleep(500);
+    for (int tick = 1; progress.status == dm::DownloadStatus::Connecting ||
+                       progress.status == dm::DownloadStatus::Downloading;
+         ++tick) {
+        Sleep(50);
         progress = task.progress();
-        if (progress.status == dm::DownloadStatus::Downloading) print(progressLine(progress, decimal));
+        if (tick % 10 == 0 && progress.status == dm::DownloadStatus::Downloading) print(progressLine(progress, decimal));
     }
     task.wait();
     progress = task.progress();
