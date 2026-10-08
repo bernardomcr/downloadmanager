@@ -58,6 +58,16 @@ HttpSession::HttpSession(const std::wstring& userAgent) {
 #endif
         BOOL fastFallback = TRUE;
         WinHttpSetOption(session_, WINHTTP_OPTION_IPV6_FAST_FALLBACK, &fastFallback, sizeof(fastFallback));
+        // Conexões novas começam mais rápido (Windows 10 2004+; versões antigas só ignoram).
+#ifndef WINHTTP_OPTION_TCP_FAST_OPEN
+#define WINHTTP_OPTION_TCP_FAST_OPEN 153
+#endif
+#ifndef WINHTTP_OPTION_TLS_FALSE_START
+#define WINHTTP_OPTION_TLS_FALSE_START 154
+#endif
+        BOOL enabled = TRUE;
+        WinHttpSetOption(session_, WINHTTP_OPTION_TCP_FAST_OPEN, &enabled, sizeof(enabled));
+        WinHttpSetOption(session_, WINHTTP_OPTION_TLS_FALSE_START, &enabled, sizeof(enabled));
     }
 }
 
@@ -84,6 +94,7 @@ void HttpRequest::abort() {
 
 bool HttpRequest::send(const HttpSession& session, const std::string& url, const std::vector<HttpHeader>& headers,
                        int64_t rangeFrom, int64_t rangeTo, DWORD& errorCode) {
+    close();  // nova tentativa com o mesmo objeto: libera as alças da anterior
     response_ = {};
     if (!session.handle()) {
         errorCode = ERROR_WINHTTP_INTERNAL_ERROR;

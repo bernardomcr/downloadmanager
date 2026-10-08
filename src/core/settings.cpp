@@ -5,6 +5,12 @@
 #include <sstream>
 
 namespace dm {
+namespace {
+
+// 2: padrão de conexões 8 -> 16.
+constexpr int kSettingsVersion = 2;
+
+}  // namespace
 
 std::string serializeSettings(const Settings& settings) {
     std::ostringstream out;
@@ -23,6 +29,10 @@ std::string serializeSettings(const Settings& settings) {
     out << "browser-adopt=" << (settings.adoptBrowserDownloads ? 1 : 0) << '\n';
     out << "rules=" << (settings.rulesEnabled ? 1 : 0) << '\n';
     out << "auto-update=" << (settings.autoUpdate ? 1 : 0) << '\n';
+    out << "browser-folder=" << (settings.browserFolder ? 1 : 0) << '\n';
+    out << "complete-window=" << (settings.showCompleteWindow ? 1 : 0) << '\n';
+    out << "speed-unit=" << (settings.speedInBits ? "bits" : "bytes") << '\n';
+    out << "settings-version=" << kSettingsVersion << '\n';
     out << "max-downloads=" << settings.maxDownloads << '\n';
     out << "speed-limit-kbps=" << settings.speedLimitKBps << '\n';
     out << "schedule=" << (settings.scheduleEnabled ? 1 : 0) << '\n';
@@ -34,6 +44,8 @@ std::string serializeSettings(const Settings& settings) {
 
 Settings parseSettings(const std::string& text) {
     Settings settings;
+    int version = 1;
+    bool hasConnections = false;
     std::istringstream in(text);
     std::string line;
     while (std::getline(in, line)) {
@@ -49,6 +61,16 @@ Settings parseSettings(const std::string& text) {
             std::istringstream number(value);
             int connections = 0;
             if (number >> connections) settings.connections = std::clamp(connections, 1, 32);
+            hasConnections = true;
+        } else if (key == "settings-version") {
+            std::istringstream number(value);
+            number >> version;
+        } else if (key == "browser-folder") {
+            settings.browserFolder = value != "0";
+        } else if (key == "complete-window") {
+            settings.showCompleteWindow = value != "0";
+        } else if (key == "speed-unit") {
+            settings.speedInBits = value == "bits";
         } else if (key == "language") {
             settings.language = value == "pt"   ? LanguageSetting::Portuguese
                                 : value == "en" ? LanguageSetting::English
@@ -86,6 +108,8 @@ Settings parseSettings(const std::string& text) {
             if (minutes >= 0) (key == "schedule-start" ? settings.scheduleStart : settings.scheduleEnd) = minutes;
         }
     }
+    // Versão 1 gravava sempre "connections=8" (o padrão de então): passa para o padrão novo uma vez.
+    if (version < 2 && hasConnections && settings.connections == 8) settings.connections = Settings{}.connections;
     return settings;
 }
 

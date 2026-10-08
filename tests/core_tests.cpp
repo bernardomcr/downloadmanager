@@ -248,7 +248,18 @@ void testSettings() {
     CHECK(!parsed.rulesEnabled && dm::parseSettings("").rulesEnabled);
     CHECK(!parsed.autoUpdate && dm::parseSettings("").autoUpdate);
     CHECK(dm::parseSettings("connections=500\n").connections == 32);
-    CHECK(dm::parseSettings("").connections == 8);
+    CHECK(dm::parseSettings("").connections == 16);
+    // Arquivo antigo com o padrão antigo (8) passa para 16; escolha diferente ou arquivo novo fica.
+    CHECK(dm::parseSettings("connections=8\n").connections == 16);
+    CHECK(dm::parseSettings("connections=4\n").connections == 4);
+    CHECK(dm::parseSettings("connections=8\nsettings-version=2\n").connections == 8);
+    dm::Settings bits;
+    bits.speedInBits = true;
+    bits.showCompleteWindow = false;
+    bits.browserFolder = false;
+    const auto again = dm::parseSettings(dm::serializeSettings(bits));
+    CHECK(again.speedInBits && !again.showCompleteWindow && !again.browserFolder);
+    CHECK(!dm::parseSettings("").speedInBits && dm::parseSettings("").showCompleteWindow && dm::parseSettings("").browserFolder);
 }
 
 void testRateLimiter() {

@@ -7,6 +7,7 @@
 #include "core/segments.h"
 #include "util/file_io.h"
 #include "util/unicode.h"
+#include "version.h"
 
 namespace dm {
 namespace {
@@ -51,7 +52,22 @@ bool isPermanentNetworkError(DWORD code) {
     return error == DownloadError::InvalidUrl || error == DownloadError::SecureConnection;
 }
 
+// Recusa típica de proteção contra robôs: o servidor fecha a conexão ou responde 403/406.
+bool looksBlocked(int status, DWORD code) {
+    return status == 403 || status == 406 || code == ERROR_WINHTTP_INVALID_SERVER_RESPONSE ||
+           code == ERROR_WINHTTP_CONNECTION_ERROR;
+}
+
 }  // namespace
+
+std::wstring appUserAgent() {
+    return L"DownloadManager/" + toWide(DM_VERSION_STRING);
+}
+
+std::wstring browserLikeUserAgent() {
+    return L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+           L"Chrome/130.0.0.0 Safari/537.36";
+}
 
 DownloadTask::DownloadTask(DownloadOptions options) : options_(std::move(options)) {
     options_.connections = std::clamp(options_.connections, 1, 32);
@@ -145,7 +161,7 @@ DownloadProgress DownloadTask::progress() const {
 }
 
 void DownloadTask::run() {
-    session_ = std::make_unique<HttpSession>(options_.userAgent);
+    session_ = std::make_unique<HttpSession>(options_.userAgent.empty() ? appUserAgent() : options_.userAgent);
     {
         std::lock_guard lock(mutex_);
         currentUrl_ = options_.url;
@@ -200,10 +216,21 @@ void DownloadTask::run() {
 }
 
 bool DownloadTask::probe(HttpRequest& request) {
+    bool switchedAgent = false;
     for (int attempt = 0;; ++attempt) {
         DWORD code = 0;
-        if (request.send(*session_, currentUrl_, options_.headers, 0, -1, code)) {
-            const int status = request.response().status;
+        const bool sent = request.send(*session_, currentUrl_, options_.headers, 0, -1, code);
+        const int sentStatus = sent ? request.response().status : 0;
+        // Recusado logo de cara com o User-Agent do app: tenta já com o de navegador (uma vez só).
+        if (!switchedAgent && options_.userAgent.empty() && !stopRequested_ && looksBlocked(sentStatus, sent ? 0 : code)) {
+            switchedAgent = true;
+            request.abort();  // fecha as alças da sessão antiga antes de trocá-la
+            session_ = std::make_unique<HttpSession>(browserLikeUserAgent());
+            --attempt;
+            continue;
+        }
+        if (sent) {
+            const int status = sentStatus;
             if (status == 200 || status == 206) return true;
             if (!isRetryableStatus(status) || attempt >= options_.maxRetries) {
                 fail(DownloadError::HttpStatus, static_cast<unsigned long>(status));
@@ -308,6 +335,24 @@ void DownloadTask::runSegmented(std::unique_ptr<HttpRequest> probeRequest, bool 
 void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpRequest> request) {
     std::vector<char> buffer(kBufferSize);
     int consecutiveFailures = 0;
+    bool gotData = false;  // esta conexão já recebeu alguma coisa
+    // Conexões adaptativas: servidor que limita conexões por IP recusa as extras (403, 429, 503, página de
+    // erro, conexão fechada). Uma conexão extra que nunca funcionou só sai; as outras seguem o download.
+    // A última que sobrar decide de verdade (tenta de novo e, se não der, falha com o motivo).
+    bool bowedOut = false;
+    // Sai do grupo só se ainda sobrar outra conexão (atômico: várias recusadas ao mesmo tempo não zeram o grupo).
+    auto leaveIfOthers = [&] {
+        int running = runningWorkers_;
+        while (running > 1) {
+            if (runningWorkers_.compare_exchange_weak(running, running - 1)) {
+                bowedOut = true;
+                stopSignal_.notify_all();
+                return true;
+            }
+        }
+        return false;
+    };
+    auto canBowOut = [&] { return !gotData && leaveIfOthers(); };
 
     while (!stopRequested_) {
         if (!segment) {
@@ -328,17 +373,21 @@ void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpReq
             } else {
                 const HttpResponse& response = request->response();
                 if (isExpiredLinkStatus(response.status)) {
+                    if (canBowOut()) break;
                     fail(DownloadError::LinkExpired, static_cast<unsigned long>(response.status));
                     break;
                 }
                 if (!etag_.empty() && !response.etag.empty() && response.etag != etag_) {
+                    if (canBowOut()) break;  // servidor de erro/limite respondendo outra coisa
                     fail(DownloadError::ServerChanged, 0);
                     break;
                 }
                 // O servidor precisa devolver exatamente o pedaço pedido.
-                failed = response.status != 206 || !response.contentRange || response.contentRange->first != from;
+                failed = response.status != 206 || !response.contentRange || response.contentRange->first != from ||
+                         (totalSize_ > 0 && response.contentRange->total != totalSize_);
                 if (failed && !isRetryableStatus(response.status) && response.status != 206 &&
                     response.status != 200) {
+                    if (canBowOut()) break;
                     fail(DownloadError::HttpStatus, static_cast<unsigned long>(response.status));
                     break;
                 }
@@ -369,6 +418,7 @@ void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpReq
                 planner_->commit(*segment, claim.length);
                 downloaded_ += claim.length;
                 consecutiveFailures = 0;
+                gotData = true;
             }
             if (!throttle(received)) break;
             // Fim do pedaço (que pode ter encolhido porque outra conexão pegou a metade final).
@@ -386,7 +436,9 @@ void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpReq
 
         planner_->release(*segment);
         segment.reset();
+        if (canBowOut()) break;
         if (++consecutiveFailures > options_.maxRetries) {
+            if (leaveIfOthers()) break;  // as outras conexões continuam
             if (code != 0) {
                 failNetwork(code);
             } else {
@@ -399,7 +451,7 @@ void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpReq
 
     if (segment) planner_->release(*segment);
     if (request) unregisterRequest(request.get());
-    --runningWorkers_;
+    if (!bowedOut) --runningWorkers_;  // quem saiu do grupo já descontou
     stopSignal_.notify_all();
 }
 

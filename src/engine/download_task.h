@@ -30,17 +30,22 @@ struct DownloadOptions {
     std::wstring directory;
     std::wstring fileName;  // vazio: descobre pelo servidor/URL
     std::vector<HttpHeader> headers;
-    int connections = 8;
+    int connections = 16;
     int64_t minSplitSize = 512 * 1024;  // não divide restos menores que 2x isso
     int maxRetries = 5;                 // falhas seguidas sem progresso antes de desistir
     int64_t speedLimit = 0;             // bytes/s só deste download; 0 = sem limite
     bool rejectWebPages = false;        // link colado pelo usuário: página HTML vira erro WebPage
     // Limite total, compartilhado por todos os downloads (opcional).
     std::shared_ptr<RateLimiter> sharedLimiter;
-    std::wstring userAgent =
-        L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-        L"Chrome/130.0.0.0 Safari/537.36";
+    // Vazio: User-Agent próprio do app (honesto, como curl/wget). Servidores com proteção contra robôs
+    // derrubam quem diz ser o Chrome sem ser; se o servidor recusar, tenta uma vez com o de navegador.
+    // Preenchido (veio do navegador): usado sempre, para os cookies baterem com a sessão.
+    std::wstring userAgent;
 };
+
+// User-Agent do app e o de navegador usado como segunda tentativa.
+std::wstring appUserAgent();
+std::wstring browserLikeUserAgent();
 
 
 // Um download HTTP/HTTPS. Thread própria; todos os métodos públicos são seguros para chamar da UI.
