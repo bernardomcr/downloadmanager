@@ -21,6 +21,7 @@ add_library(dm_core STATIC
     src/core/base64.cpp
     src/core/browser_request.cpp
     src/core/command_line.cpp
+    src/core/debrid.cpp
     src/core/download_list.cpp
     src/core/format.cpp
     src/core/http_headers.cpp
@@ -49,7 +50,8 @@ if(WIN32)
 
     # Motor de download (WinHTTP) e textos traduzidos.
     add_library(dm_engine STATIC
-        src/engine/download_task.cpp
+        src/engine/debrid_task.cpp
+    src/engine/download_task.cpp
         src/engine/http.cpp
         src/engine/output_file.cpp
         src/engine/process.cpp
@@ -65,6 +67,7 @@ if(WIN32)
     # Camada do app (lista de downloads, integrações com o Windows, ferramentas de vídeo).
     add_library(dm_app STATIC
         src/app/browser_integration.cpp
+        src/app/debrid_account.cpp
         src/app/download_manager.cpp
         src/app/organizer.cpp
         src/app/system.cpp
@@ -80,12 +83,13 @@ if(WIN32)
         src/ui/main_window.cpp
         src/ui/rules_page.cpp
         src/ui/settings_page.cpp
+        src/ui/theme.cpp
         src/ui/tray_icon.cpp
         src/ui/video_dialog.cpp
         res/app.rc
     )
     target_include_directories(DownloadManager PRIVATE res)
-    target_link_libraries(DownloadManager PRIVATE dm_app comctl32 uxtheme)
+    target_link_libraries(DownloadManager PRIVATE dm_app comctl32 uxtheme comdlg32 dwmapi gdiplus)
 
     add_executable(dm-cli
         src/cli/main.cpp

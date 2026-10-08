@@ -84,3 +84,11 @@ test("lembra pedidos recentes por pouco tempo", () => {
   assert.strictEqual(recent.find([undefined, "https://a.com/2"], 10).method, "POST");
   assert.strictEqual(recent.find(["https://a.com/3"], 5000), null);  // expirou
 });
+
+test("reconhece magnets de torrent", () => {
+  assert.ok(lib.isMagnet("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=x"));
+  assert.ok(lib.isMagnet("magnet:?dn=x&xt=urn:btih:abcdefghijklmnopqrstuvwxyz234567"));
+  assert.ok(!lib.isMagnet("magnet:?xt=urn:btih:123"));
+  assert.ok(!lib.isMagnet("https://a.com/x.torrent"));
+  assert.ok(!lib.isMagnet(undefined));
+});

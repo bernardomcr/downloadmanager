@@ -2,6 +2,9 @@
 
 #include <commctrl.h>
 
+#include <algorithm>
+#include <cctype>
+
 #include "app/system.h"
 #include "i18n/strings.h"
 #include "resource.h"
@@ -45,7 +48,37 @@ void SettingsPage::applyTexts() {
     for (int id : {IDC_SET_SCHEDULE_START, IDC_SET_SCHEDULE_END}) {
         SendDlgItemMessageW(dialog_, id, DTM_SETFORMATW, 0, reinterpret_cast<LPARAM>(L"HH':'mm"));
     }
+    SetDlgItemTextW(dialog_, IDC_SET_DEBRID_TITLE, tr(Str::SettingsDebridTitle));
+    SendDlgItemMessageW(dialog_, IDC_SET_DEBRID_TOKEN, EM_SETCUEBANNER, TRUE,
+                        reinterpret_cast<LPARAM>(tr(Str::SettingsDebridToken)));
+    if (!titleFont_) {
+        LOGFONTW font{};
+        font.lfHeight = -MulDiv(9, static_cast<int>(GetDpiForWindow(dialog_)), 72);
+        font.lfWeight = FW_SEMIBOLD;
+        font.lfCharSet = DEFAULT_CHARSET;
+        font.lfQuality = CLEARTYPE_QUALITY;
+        lstrcpynW(font.lfFaceName, L"Segoe UI", LF_FACESIZE);
+        titleFont_ = CreateFontIndirectW(&font);
+        SendDlgItemMessageW(dialog_, IDC_SET_DEBRID_TITLE, WM_SETFONT, reinterpret_cast<WPARAM>(titleFont_), TRUE);
+    }
+    if (debridStatus_.empty()) debridStatus_ = tr(Str::SettingsDebridNotConnected);
+    setDebridStatus(debridStatus_, debridConnected_, debridChecking_);
     fillControls();
+}
+
+void SettingsPage::setDebridStatus(const std::wstring& text, bool connected, bool checking) {
+    debridStatus_ = text;
+    debridConnected_ = connected;
+    debridChecking_ = checking;
+    if (!dialog_) return;
+    SetDlgItemTextW(dialog_, IDC_SET_DEBRID_STATUS, text.c_str());
+    SetDlgItemTextW(dialog_, IDC_SET_DEBRID_CONNECT,
+                    tr(connected ? Str::SettingsDebridDisconnect : Str::SettingsDebridConnect));
+    HWND token = GetDlgItem(dialog_, IDC_SET_DEBRID_TOKEN);
+    // Conectado: o token não fica à mostra nem editável (está guardado criptografado).
+    if (connected) SetWindowTextW(token, L"");
+    EnableWindow(token, !connected && !checking);
+    EnableWindow(GetDlgItem(dialog_, IDC_SET_DEBRID_CONNECT), !checking);
 }
 
 void SettingsPage::fillControls() {
@@ -130,8 +163,75 @@ INT_PTR CALLBACK SettingsPage::dialogProc(HWND dialog, UINT message, WPARAM wPar
     return self ? self->handleMessage(message, wParam, lParam) : FALSE;
 }
 
+void SettingsPage::updateScroll() {
+    // Conteúdo: até o controle mais baixo (posição atual + o quanto já rolou), com folga.
+    RECT client;
+    GetClientRect(dialog_, &client);
+    int bottom = 0;
+    for (HWND child = GetWindow(dialog_, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+        RECT rect;
+        GetWindowRect(child, &rect);
+        MapWindowPoints(nullptr, dialog_, reinterpret_cast<POINT*>(&rect), 2);
+        bottom = std::max<int>(bottom, rect.bottom + scrollPosition_);
+    }
+    RECT margin{0, 0, 0, 12};
+    MapDialogRect(dialog_, &margin);
+    SCROLLINFO info{sizeof(info), SIF_RANGE | SIF_PAGE};
+    info.nMin = 0;
+    info.nMax = bottom + margin.bottom;
+    info.nPage = static_cast<UINT>(client.bottom + 1);
+    SetScrollInfo(dialog_, SB_VERT, &info, TRUE);
+    const int maxPosition = std::max<int>(0, info.nMax - static_cast<int>(client.bottom));
+    if (scrollPosition_ > maxPosition) scrollTo(maxPosition);
+}
+
+void SettingsPage::scrollTo(int position) {
+    RECT client;
+    GetClientRect(dialog_, &client);
+    SCROLLINFO info{sizeof(info), SIF_RANGE | SIF_PAGE};
+    GetScrollInfo(dialog_, SB_VERT, &info);
+    const int maxPosition = std::max(0, info.nMax - static_cast<int>(info.nPage) + 1);
+    position = std::clamp(position, 0, maxPosition);
+    if (position == scrollPosition_) return;
+    ScrollWindowEx(dialog_, 0, scrollPosition_ - position, nullptr, nullptr, nullptr, nullptr,
+                   SW_SCROLLCHILDREN | SW_INVALIDATE | SW_ERASE);
+    scrollPosition_ = position;
+    SCROLLINFO position_info{sizeof(position_info), SIF_POS};
+    position_info.nPos = position;
+    SetScrollInfo(dialog_, SB_VERT, &position_info, TRUE);
+}
+
 INT_PTR SettingsPage::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     if (const INT_PTR brush = whiteBackground(message, wParam)) return brush;
+    switch (message) {
+        case WM_SIZE:
+            updateScroll();
+            return FALSE;
+        case WM_MOUSEWHEEL: {
+            const int lines = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+            RECT step{0, 0, 0, 30};
+            MapDialogRect(dialog_, &step);
+            scrollTo(scrollPosition_ - lines * step.bottom);
+            return TRUE;
+        }
+        case WM_VSCROLL: {
+            SCROLLINFO info{sizeof(info), SIF_ALL};
+            GetScrollInfo(dialog_, SB_VERT, &info);
+            int position = scrollPosition_;
+            switch (LOWORD(wParam)) {
+                case SB_LINEUP: position -= 20; break;
+                case SB_LINEDOWN: position += 20; break;
+                case SB_PAGEUP: position -= static_cast<int>(info.nPage); break;
+                case SB_PAGEDOWN: position += static_cast<int>(info.nPage); break;
+                case SB_THUMBTRACK:
+                case SB_THUMBPOSITION: position = info.nTrackPos; break;
+                case SB_TOP: position = 0; break;
+                case SB_BOTTOM: position = info.nMax; break;
+            }
+            scrollTo(position);
+            return TRUE;
+        }
+    }
     if (message == WM_NOTIFY && !filling_) {
         const auto* header = reinterpret_cast<const NMHDR*>(lParam);
         if (header->code == DTN_DATETIMECHANGE) {
@@ -214,6 +314,21 @@ INT_PTR SettingsPage::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
         case IDC_SET_UPDATE:
             if (onUpdateButton) onUpdateButton();
             return TRUE;
+        case IDC_SET_DEBRID_CONNECT: {
+            if (debridConnected_) {
+                if (onDebridDisconnect) onDebridDisconnect();
+                return TRUE;
+            }
+            std::string token = dm::toUtf8(windowText(GetDlgItem(dialog_, IDC_SET_DEBRID_TOKEN)));
+            while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back()))) token.pop_back();
+            while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front()))) token.erase(0, 1);
+            if (token.empty()) {
+                SetFocus(GetDlgItem(dialog_, IDC_SET_DEBRID_TOKEN));
+            } else if (onDebridConnect) {
+                onDebridConnect(token);
+            }
+            return TRUE;
+        }
         case IDC_SET_MAX_DOWNLOADS:
             if (code == EN_CHANGE) {
                 BOOL valid = FALSE;

@@ -10,6 +10,7 @@
 #include "core/base64.h"
 #include "core/browser_request.h"
 #include "core/command_line.h"
+#include "core/debrid.h"
 #include "core/download_list.h"
 #include "core/format.h"
 #include "core/http_headers.h"
@@ -195,8 +196,20 @@ void testDownloadList() {
     second.organize = true;
     second.state = dm::RecordState::Queued;
 
+    dm::DownloadRecord torrent = record;
+    torrent.id = 9;
+    torrent.url = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567";
+    torrent.debrid = true;
+    dm::DownloadRecord sent = torrent;
+    sent.id = 10;
+    sent.debridId = "ABC123";
+    const auto torrents = dm::parseDownloadList(dm::serializeDownloadList({torrent, sent}));
+    CHECK(torrents.size() == 2 && torrents[0].debrid && torrents[0].debridId.empty() && torrents[1].debrid &&
+          torrents[1].debridId == "ABC123" && torrents[0].url == torrent.url);
+
     const auto parsed = dm::parseDownloadList(dm::serializeDownloadList({record, second}));
     CHECK(parsed.size() == 2);
+    CHECK(!parsed[0].debrid);
     CHECK(parsed[0].id == 7 && parsed[0].directory == record.directory && parsed[0].filePath == record.filePath);
     CHECK(parsed[0].state == dm::RecordState::Completed && parsed[0].totalSize == 1234);
     CHECK(parsed[0].finishedAt == 1700000100 && parsed[0].connections == 4);
@@ -319,6 +332,12 @@ void testBrowserRequest() {
           dm::BrowserRequest::Source::Page);
     CHECK(!dm::parseBrowserRequest(R"({"type":"add","url":"file:///C:/Windows/win.ini"})"));
     CHECK(!dm::parseBrowserRequest(R"({"type":"add","url":"javascript:void"})"));
+    // Magnet: só pelo clique direito (source link) e bem formado.
+    const std::string magnetJson =
+        R"({"type":"add","url":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=x","source":"link"})";
+    CHECK(dm::parseBrowserRequest(magnetJson));
+    CHECK(!dm::parseBrowserRequest(R"({"type":"add","url":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"})"));
+    CHECK(!dm::parseBrowserRequest(R"({"type":"add","url":"magnet:?xt=urn:btih:zz","source":"link"})"));
     CHECK(!dm::parseBrowserRequest(R"({"type":"other","url":"https://a.com/x"})"));
     // Cabeçalho com quebra de linha (tentativa de injeção) é descartado; o resto continua valendo.
     const auto injected = dm::parseBrowserRequest(R"({"type":"add","url":"https://a.com/x","cookies":"a=1\r\nX-Evil: 1"})");
@@ -526,6 +545,61 @@ void testUpdate() {
           dm::parseChecksumFile(std::string(63, 'a') + "g").empty());
 }
 
+void testDebrid() {
+    const std::string magnet =
+        "magnet:?xt=urn:btih:0123456789ABCDEF0123456789abcdef01234567&dn=Linux+Mint%2022.iso&tr=udp%3A%2F%2Ft.example";
+    CHECK(dm::isMagnetLink(magnet));
+    CHECK(dm::magnetHash(magnet) == "0123456789abcdef0123456789abcdef01234567");
+    CHECK(dm::magnetDisplayName(magnet) == "Linux Mint 22.iso");
+    CHECK(dm::isMagnetLink("MAGNET:?xt=urn:btih:abcdefghijklmnopqrstuvwxyz234567"));  // base32
+    CHECK(!dm::isMagnetLink("magnet:?xt=urn:btih:123"));
+    CHECK(!dm::isMagnetLink("magnet:?dn=x"));
+    CHECK(!dm::isMagnetLink("https://example.com/a.torrent"));
+    CHECK(!dm::isMagnetLink(magnet + "\r\nX: y"));
+
+    CHECK(dm::formEncode({{"magnet", "a b&c=d/é"}, {"x", "1"}}) == "magnet=a%20b%26c%3Dd%2F%C3%A9&x=1");
+
+    CHECK(dm::parseDebridError(200, "") == dm::DebridError::None);
+    CHECK(dm::parseDebridError(401, R"({"error":"bad_token","error_code":8})") == dm::DebridError::BadToken);
+    CHECK(dm::parseDebridError(401, "") == dm::DebridError::BadToken);
+    CHECK(dm::parseDebridError(403, R"({"error":"permission_denied","error_code":9})") == dm::DebridError::NotPremium);
+    CHECK(dm::parseDebridError(503, R"({"error_code":21})") == dm::DebridError::TooManyTorrents);
+    CHECK(dm::parseDebridError(400, R"({"error_code":30})") == dm::DebridError::TorrentFailed);
+    CHECK(dm::parseDebridError(500, "x") == dm::DebridError::Other);
+
+    const auto user = dm::parseDebridUser(
+        R"({"id":1,"username":"bernardo","email":"x","points":10,"type":"premium","expiration":"2026-12-31T00:00:00.000Z"})");
+    CHECK(user && user->username == "bernardo" && user->premium);
+    CHECK(dm::formatDebridDate(user->expiration, true) == "31/12/2026");
+    CHECK(dm::formatDebridDate(user->expiration, false) == "2026-12-31");
+    CHECK(dm::formatDebridDate("", true).empty());
+    CHECK(!dm::parseDebridUser("{}"));
+
+    CHECK(dm::parseAddedTorrentId(R"({"id":"ABC123","uri":"https://api.real-debrid.com/x"})") == "ABC123");
+    CHECK(dm::parseAddedTorrentId(R"({"id":"../x"})").empty());
+
+    auto torrent = dm::parseDebridTorrent(
+        R"({"id":"ABC","filename":"Mint.iso","bytes":2000000000,"progress":45.5,"status":"downloading","speed":1000,"seeders":12,"links":[]})");
+    CHECK(torrent && torrent->status == dm::DebridTorrent::Status::Downloading && torrent->progress == 45.5 &&
+          torrent->bytes == 2000000000 && torrent->seeders == 12 && torrent->fileName == "Mint.iso");
+    torrent = dm::parseDebridTorrent(
+        R"({"id":"ABC","filename":"x","status":"downloaded","progress":100,"links":["https:\/\/real-debrid.com\/d\/AAA","ftp://bad"]})");
+    CHECK(torrent && torrent->status == dm::DebridTorrent::Status::Ready && torrent->links.size() == 1 &&
+          torrent->links[0] == "https://real-debrid.com/d/AAA");
+    torrent = dm::parseDebridTorrent(R"({"id":"ABC","status":"downloaded","links":[]})");
+    CHECK(torrent && torrent->status == dm::DebridTorrent::Status::Failed);
+    torrent = dm::parseDebridTorrent(R"({"id":"ABC","status":"waiting_files_selection"})");
+    CHECK(torrent && torrent->status == dm::DebridTorrent::Status::WaitingSelection);
+    torrent = dm::parseDebridTorrent(R"({"id":"ABC","status":"dead"})");
+    CHECK(torrent && torrent->status == dm::DebridTorrent::Status::Failed);
+
+    const auto link = dm::parseDebridLink(
+        R"({"id":"X","filename":"Mint.iso","filesize":2000,"link":"https://real-debrid.com/d/AAA","download":"https://dl.real-debrid.com/x/Mint.iso"})");
+    CHECK(link && link->download == "https://dl.real-debrid.com/x/Mint.iso" && link->fileName == "Mint.iso" &&
+          link->size == 2000);
+    CHECK(!dm::parseDebridLink(R"({"download":"javascript:x"})"));
+}
+
 int main() {
     testContentRange();
     testFileNames();
@@ -545,6 +619,7 @@ int main() {
     testCommandLine();
     testRules();
     testUpdate();
+    testDebrid();
 
     if (g_failures == 0) std::printf("Todos os testes passaram.\n");
     return g_failures == 0 ? 0 : 1;

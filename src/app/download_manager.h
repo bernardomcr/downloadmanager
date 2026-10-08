@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "app/organizer.h"
+#include "core/debrid.h"
 #include "core/download_list.h"
 #include "core/rules.h"
 #include "core/video.h"
@@ -60,6 +61,12 @@ public:
                       const dm::VideoFormat& format, bool subtitles,
                       const std::vector<std::pair<std::string, std::string>>& headers = {},
                       const std::string& userAgent = {});
+    // Torrent pelo Real-Debrid: `source` é o magnet ou o caminho do .torrent já copiado para a pasta do app.
+    // Quando o serviço termina, vira um download direto por arquivo do torrent.
+    uint64_t addTorrent(const std::string& source, const std::wstring& directory, const std::wstring& displayName,
+                        int connections);
+    // Token da API (texto puro, só na memória). Vazio: torrents falham com "conecte o Real-Debrid".
+    void setDebridToken(std::string token) { debridToken_ = std::move(token); }
     // Regras de organização (aplicadas ao concluir quem foi para a pasta padrão).
     void setRules(std::vector<dm::Rule> rules, bool enabled, std::wstring baseFolder);
     // Marca se um download novo deve ser organizado pelas regras (foi para a pasta padrão).
@@ -108,6 +115,10 @@ private:
     bool collectOrganized();
     // Aplica o agendador e começa downloads da fila enquanto houver vaga. true se algo mudou.
     bool advanceQueue();
+    // O Real-Debrid terminou: o item vira o primeiro link direto e os outros arquivos entram como itens novos.
+    void finishDebrid(DownloadItem& item, const std::vector<dm::DebridLink>& links);
+    // .torrent que o app guardou para este item (apaga quando não precisa mais).
+    void deleteTorrentCopy(const dm::DownloadRecord& record);
 
     std::wstring listPath_;
     std::vector<std::unique_ptr<DownloadItem>> items_;
@@ -118,6 +129,7 @@ private:
     int scheduleStart_ = 0;
     int scheduleEnd_ = 0;
     VideoTools* videoTools_ = nullptr;
+    std::string debridToken_;
     std::vector<dm::Rule> rules_;
     bool rulesEnabled_ = true;
     std::wstring baseFolder_;

@@ -22,6 +22,8 @@ struct Settings {
     bool adoptBrowserDownloads = true;   // o que o navegador baixar sozinho é movido para a pasta do app
     bool rulesEnabled = true;            // aba Regras: organizar os concluídos em subpastas
     bool autoUpdate = true;              // baixa e instala versões novas sozinho
+    // Token da API do Real-Debrid já criptografado pelo app (DPAPI, base64); vazio = não conectado.
+    std::string realDebridToken;
 
     int maxDownloads = 3;           // downloads ao mesmo tempo; o resto espera na fila
     int64_t speedLimitKBps = 0;     // limite total; 0 = sem limite

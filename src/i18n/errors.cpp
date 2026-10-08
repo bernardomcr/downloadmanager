@@ -7,6 +7,19 @@
 
 namespace i18n {
 
+std::wstring describeDebridError(dm::DebridError error) {
+    switch (error) {
+        case dm::DebridError::None: return {};
+        case dm::DebridError::NotConnected: return tr(Str::ErrDebridNotConnected);
+        case dm::DebridError::BadToken: return tr(Str::ErrDebridBadToken);
+        case dm::DebridError::NotPremium: return tr(Str::ErrDebridNotPremium);
+        case dm::DebridError::TorrentFailed: return tr(Str::ErrDebridTorrentFailed);
+        case dm::DebridError::TooManyTorrents: return tr(Str::ErrDebridTooMany);
+        case dm::DebridError::Unavailable: return tr(Str::ErrDebridUnavailable);
+        default: return tr(Str::ErrDebridOther);
+    }
+}
+
 std::wstring describeError(dm::DownloadError error, unsigned long detail, const std::string& text) {
     Str id;
     switch (error) {
@@ -25,6 +38,7 @@ std::wstring describeError(dm::DownloadError error, unsigned long detail, const 
         case dm::DownloadError::FileSystem: id = Str::ErrFileSystem; break;
         case dm::DownloadError::Protected: id = Str::ErrProtected; break;
         case dm::DownloadError::WebPage: id = Str::ErrWebPage; break;
+        case dm::DownloadError::Debrid: return describeDebridError(static_cast<dm::DebridError>(detail));
         case dm::DownloadError::ToolFailed: {
             wchar_t buffer[512];
             std::swprintf(buffer, 512, tr(Str::ErrToolFailed), dm::toWide(text.substr(0, 400)).c_str());

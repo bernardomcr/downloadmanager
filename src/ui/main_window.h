@@ -13,6 +13,9 @@
 #include "app/video_tools.h"
 #include "core/browser_request.h"
 #include "core/settings.h"
+#include <shellapi.h>
+
+#include "ui/dialogs.h"
 #include "ui/download_list_view.h"
 #include "ui/rules_page.h"
 #include "ui/settings_page.h"
@@ -59,6 +62,15 @@ private:
     void refreshLists();
     void onTimer();
     void onAddClicked();
+    // Valores comuns do diálogo Adicionar (pasta padrão e regras para prever a pasta final).
+    void prepareAddRequest(AddRequest& request) const;
+    // Magnet ou .torrent pelo Real-Debrid. Sem conta conectada, avisa e abre Configurações. 0 = não adicionou.
+    uint64_t addTorrent(std::wstring input, const std::wstring& folder, bool organize);
+    void onDropFiles(HDROP drop);
+    // Real-Debrid: token para as tarefas e conferência da conta em segundo plano.
+    void applyDebridToken();
+    void checkDebridAccount(const std::string& token, bool connecting);
+    void onDebridChecked(LPARAM result);
     // Fluxo de vídeo (análise + escolhas). Devolve o id do primeiro download criado, 0 se cancelado.
     uint64_t addVideoFlow(const std::wstring& url, const std::wstring& folder, const std::wstring& title,
                           const std::vector<std::pair<std::string, std::string>>& headers,
@@ -85,10 +97,17 @@ private:
 
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;
-    HWND tabs_ = nullptr;
     HWND addButton_ = nullptr;
     std::array<HWND, kPageCount> pages_{};
     HFONT font_ = nullptr;
+    HWND tabs_ = nullptr;
+    HFONT listFont_ = nullptr;
+    // Rodapé de status (desenhado em WM_PAINT).
+    int footerHeight_ = 0;
+    std::wstring footerText_;
+    std::wstring footerSpeed_;
+    void paint(HDC dc);
+    void updateFooter();
     HBRUSH background_ = nullptr;
     HICON iconLarge_ = nullptr;
     HICON iconSmall_ = nullptr;

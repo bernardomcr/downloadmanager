@@ -7,6 +7,7 @@
 #include "app/system.h"
 #include "app/video_tools.h"
 #include "core/http_headers.h"
+#include "engine/debrid_task.h"
 #include "engine/video_task.h"
 #include "core/rate_limiter.h"
 #include "util/file_io.h"
@@ -226,6 +227,63 @@ uint64_t DownloadManager::addVideo(const std::string& url, const std::wstring& d
     return id;
 }
 
+uint64_t DownloadManager::addTorrent(const std::string& source, const std::wstring& directory,
+                                     const std::wstring& displayName, int connections) {
+    auto item = std::make_unique<DownloadItem>();
+    item->record.id = nextId_++;
+    item->record.url = source;
+    item->record.debrid = true;
+    item->record.directory = dm::toUtf8(directory);
+    item->record.fileName = dm::toUtf8(displayName);  // só para a lista; os nomes finais vêm do Real-Debrid
+    item->record.connections = connections;
+    item->record.addedAt = unixNow();
+    item->record.state = dm::RecordState::Queued;
+    const uint64_t id = item->record.id;
+    items_.push_back(std::move(item));
+    advanceQueue();
+    save();
+    return id;
+}
+
+void DownloadManager::deleteTorrentCopy(const dm::DownloadRecord& record) {
+    if (!record.debrid || dm::isMagnetLink(record.url)) return;
+    // Só apaga a cópia que o app fez (dentro da pasta de dados), nunca o arquivo original do usuário.
+    const std::wstring path = dm::toWide(record.url);
+    const std::wstring folder = dm::joinPath(dm::directoryOf(listPath_), L"torrents");
+    if (_wcsnicmp(path.c_str(), folder.c_str(), folder.size()) == 0) DeleteFileW(path.c_str());
+}
+
+void DownloadManager::finishDebrid(DownloadItem& item, const std::vector<dm::DebridLink>& links) {
+    dm::DownloadRecord& record = item.record;
+    if (links.empty()) {
+        record.state = dm::RecordState::Failed;
+        record.errorCode = static_cast<int>(dm::DownloadError::Debrid);
+        record.errorDetail = static_cast<unsigned long>(dm::DebridError::TorrentFailed);
+        return;
+    }
+    deleteTorrentCopy(record);
+    const dm::DownloadRecord base = record;
+    auto makeDirect = [&](dm::DownloadRecord& target, const dm::DebridLink& link) {
+        target.debrid = false;
+        target.debridId.clear();
+        target.url = link.download;
+        target.fileName = dm::sanitizeFileName(link.fileName);
+        target.filePath.clear();
+        target.totalSize = link.size;
+        target.downloaded = 0;
+        target.errorCode = 0;
+        target.state = dm::RecordState::Queued;
+    };
+    makeDirect(record, links.front());
+    for (size_t i = 1; i < links.size(); ++i) {
+        auto extra = std::make_unique<DownloadItem>();
+        extra->record = base;
+        extra->record.id = nextId_++;
+        makeDirect(extra->record, links[i]);
+        items_.push_back(std::move(extra));
+    }
+}
+
 uint64_t DownloadManager::addCompleted(const std::string& url, const std::wstring& filePath, int64_t size) {
     auto item = std::make_unique<DownloadItem>();
     item->record.id = nextId_++;
@@ -291,6 +349,7 @@ void DownloadManager::remove(uint64_t id, bool deleteFiles) {
         DeleteFileW((path + dm::kPartSuffix).c_str());
         DeleteFileW((path + dm::kStateSuffix).c_str());
     }
+    deleteTorrentCopy(item.record);
     items_.erase(it);
     save();
 }
@@ -328,6 +387,8 @@ bool DownloadManager::tick() {
     bool changed = false;
     // Links que eram páginas web: saem da lista e viram análise de vídeo (fora do laço, que não pode remover).
     std::vector<dm::DownloadRecord> webPages;
+    // Torrents prontos no Real-Debrid: viram downloads diretos depois do laço (que não pode criar itens).
+    std::vector<std::pair<uint64_t, std::vector<dm::DebridLink>>> debridDone;
     for (auto& item : items_) {
         if (!item->task) continue;
         const dm::DownloadStatus previous = item->live.status;
@@ -336,11 +397,24 @@ bool DownloadManager::tick() {
         if (item->live.totalSize >= 0) record.totalSize = item->live.totalSize;
         if (item->live.status != dm::DownloadStatus::Connecting) record.downloaded = item->live.downloaded;
         if (!item->live.filePath.empty()) record.filePath = dm::toUtf8(item->live.filePath);
+        if (record.debrid) {
+            if (!item->live.remoteId.empty() && item->live.remoteId != record.debridId) {
+                record.debridId = item->live.remoteId;
+                changed = true;  // salva logo: não mandar o mesmo torrent duas vezes
+            }
+            if (!item->live.remoteName.empty()) record.fileName = item->live.remoteName;
+        }
 
         if (item->live.status == previous) continue;
         changed = true;
         switch (item->live.status) {
             case dm::DownloadStatus::Completed:
+                if (record.debrid) {
+                    const auto* debrid = dynamic_cast<const dm::DebridTask*>(item->task.get());
+                    debridDone.emplace_back(record.id, debrid ? debrid->links() : std::vector<dm::DebridLink>{});
+                    stopTask(*item);
+                    break;
+                }
                 stopTask(*item);
                 record.state = dm::RecordState::Completed;
                 record.finishedAt = unixNow();
@@ -374,6 +448,9 @@ bool DownloadManager::tick() {
         remove(record.id, true);
         if (onWebPage) onWebPage(record);
     }
+    for (const auto& [id, links] : debridDone) {
+        if (DownloadItem* item = find(id)) finishDebrid(*item, links);
+    }
     if (collectOrganized()) changed = true;
     if (advanceQueue()) changed = true;
     if (changed || ++ticksSinceSave_ >= kSaveEveryTicks) save();
@@ -404,6 +481,22 @@ std::string escapeTemplate(const std::string& text) {
 void DownloadManager::startTask(DownloadItem& item) {
     const bool rejectWebPages = item.rejectWebPages;
     stopTask(item);
+    if (item.record.debrid) {
+        dm::DebridTaskOptions options;
+        options.token = debridToken_;
+        if (dm::isMagnetLink(item.record.url)) {
+            options.magnet = item.record.url;
+        } else {
+            options.torrentFile = dm::toWide(item.record.url);
+        }
+        options.torrentId = item.record.debridId;
+        item.task = std::make_unique<dm::DebridTask>(std::move(options));
+        item.task->start();
+        item.live = item.task->progress();
+        item.record.state = dm::RecordState::Active;
+        item.record.errorCode = 0;
+        return;
+    }
     if (item.record.isVideo) {
         if (!videoTools_ || !videoTools_->ready()) {
             item.record.state = dm::RecordState::Queued;

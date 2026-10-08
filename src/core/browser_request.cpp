@@ -4,6 +4,7 @@
 #include <cctype>
 #include <string_view>
 
+#include "core/debrid.h"
 #include "core/json.h"
 
 namespace dm {
@@ -69,7 +70,11 @@ std::optional<BrowserRequest> parseBrowserRequest(const std::string& json) {
                      : source == "page"  ? BrowserRequest::Source::Page
                                          : BrowserRequest::Source::Capture;
 
-    if (!isWebUrl(request.url) || request.url.size() > kMaxUrl || hasLineBreak(request.url)) return std::nullopt;
+    // Magnet só pelo clique direito num link (vai para o Real-Debrid); capturas são sempre http/https.
+    const bool magnet = request.source == BrowserRequest::Source::Link && isMagnetLink(request.url);
+    if ((!isWebUrl(request.url) && !magnet) || request.url.size() > kMaxUrl || hasLineBreak(request.url)) {
+        return std::nullopt;
+    }
     // Quebras de linha num cabeçalho permitiriam injetar outros cabeçalhos: descarta o campo.
     for (std::string* field : {&request.fileName, &request.referrer, &request.cookies, &request.userAgent}) {
         if (field->size() > kMaxField || hasLineBreak(*field)) field->clear();

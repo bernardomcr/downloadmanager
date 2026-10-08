@@ -26,7 +26,11 @@ enum class DownloadError {
     Protected,        // conteúdo com DRM: não é baixado
     ToolFailed,       // yt-dlp/ffmpeg falhou; detalhe em errorText
     WebPage,          // o link abre uma página (HTML), não um arquivo: provavelmente é um vídeo
+    Debrid,           // Real-Debrid recusou; detalhe = DebridError
 };
+
+// Etapa de um torrent/magnet no Real-Debrid (antes de virar download direto).
+enum class RemoteStage { None, Preparing, Queued, Downloading, Finishing };
 
 struct DownloadProgress {
     DownloadStatus status = DownloadStatus::Idle;
@@ -42,6 +46,9 @@ struct DownloadProgress {
     std::string errorText;   // mensagem da ferramenta (UTF-8), para ToolFailed
     int part = 0;            // vídeos: 1 = vídeo, 2 = áudio... (0 = não se aplica)
     bool postProcessing = false;  // vídeos: juntando/convertendo
+    RemoteStage remote = RemoteStage::None;  // torrent: ainda no Real-Debrid
+    std::string remoteId;    // id do torrent no Real-Debrid (guardado para não mandar de novo)
+    std::string remoteName;  // nome do torrent informado pelo Real-Debrid
 };
 
 // Um download em andamento (arquivo comum ou vídeo). Métodos seguros para chamar da thread da interface.

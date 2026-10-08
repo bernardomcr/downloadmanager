@@ -39,6 +39,10 @@ struct DownloadRecord {
     bool subtitles = false;
     std::string errorText;       // mensagem da ferramenta quando o erro é ToolFailed
     bool organize = false;       // foi para a pasta padrão: as regras escolhem a pasta final ao concluir
+    // Torrent pelo Real-Debrid: `url` é o magnet ou o caminho do .torrent guardado pelo app.
+    // Quando o serviço termina, o item vira um download direto comum (debrid volta a false).
+    bool debrid = false;
+    std::string debridId;        // id do torrent no Real-Debrid, depois de enviado
     int errorCode = 0;       // DownloadError salvo como número
     unsigned long errorDetail = 0;
 };

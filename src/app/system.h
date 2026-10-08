@@ -10,7 +10,10 @@
 namespace app {
 
 // %LOCALAPPDATA%\DownloadManager (criada se não existir).
+// Com DM_TEST_PROFILE=<pasta>, usa essa pasta (teste ao lado de uma cópia instalada; ver testProfile()).
 std::wstring dataDirectory();
+// Perfil de teste: roda junto com o app instalado sem mexer no registro (navegador, iniciar com o Windows).
+bool testProfile();
 // Pasta Downloads do usuário.
 std::wstring defaultDownloadFolder();
 

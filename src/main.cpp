@@ -3,7 +3,11 @@
 #include <objbase.h>
 #include <shellapi.h>
 
+#include <string>
+
+#include "app/system.h"
 #include "ui/main_window.h"
+#include "ui/theme.h"
 
 namespace {
 
@@ -29,7 +33,9 @@ bool hasArgument(const wchar_t* wanted) {
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
-    HANDLE mutex = CreateMutexW(nullptr, FALSE, kSingleInstanceMutex);
+    // Perfil de teste (DM_TEST_PROFILE): roda ao lado do app instalado.
+    const std::wstring mutexName = std::wstring(kSingleInstanceMutex) + (app::testProfile() ? L".Test" : L"");
+    HANDLE mutex = CreateMutexW(nullptr, FALSE, mutexName.c_str());
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         activateRunningInstance();
         return 0;
@@ -37,8 +43,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_UPDOWN_CLASS | ICC_DATE_CLASSES |
-                                                        ICC_STANDARD_CLASSES};
+                                                        ICC_STANDARD_CLASSES | ICC_LINK_CLASS};
     InitCommonControlsEx(&controls);
+    ui::theme::startup();
 
     // --tray: aberto pelo Windows ao entrar na sessão; começa só na bandeja.
     const bool startHidden = hasArgument(L"--tray");
@@ -53,6 +60,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         DispatchMessageW(&message);
     }
 
+    ui::theme::shutdown();
     CoUninitialize();
     CloseHandle(mutex);
     return static_cast<int>(message.wParam);

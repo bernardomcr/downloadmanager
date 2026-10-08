@@ -51,6 +51,13 @@ HttpSession::HttpSession(const std::wstring& userAgent) {
             protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
             WinHttpSetOption(session_, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
         }
+        // Rede com IPv6 quebrado (comum com VPN ou provedor): sem isto o WinHTTP espera o IPv6 estourar o
+        // tempo antes de tentar o IPv4, e o download falha com "o servidor parou de responder".
+#ifndef WINHTTP_OPTION_IPV6_FAST_FALLBACK
+#define WINHTTP_OPTION_IPV6_FAST_FALLBACK 140
+#endif
+        BOOL fastFallback = TRUE;
+        WinHttpSetOption(session_, WINHTTP_OPTION_IPV6_FAST_FALLBACK, &fastFallback, sizeof(fastFallback));
     }
 }
 
@@ -173,6 +180,83 @@ int64_t HttpRequest::read(void* buffer, size_t size, DWORD& errorCode) {
         return -1;
     }
     return received;
+}
+
+ApiResponse httpCall(const HttpSession& session, const wchar_t* method, const std::string& url,
+                     const std::vector<HttpHeader>& headers, const std::string& body, const std::string& contentType) {
+    constexpr size_t kMaxBody = 4 << 20;
+    ApiResponse result;
+    if (!session.handle()) {
+        result.error = ERROR_WINHTTP_INTERNAL_ERROR;
+        return result;
+    }
+    const std::wstring wideUrl = toWide(url);
+    URL_COMPONENTS parts{};
+    parts.dwStructSize = sizeof(parts);
+    parts.dwHostNameLength = static_cast<DWORD>(-1);
+    parts.dwUrlPathLength = static_cast<DWORD>(-1);
+    parts.dwExtraInfoLength = static_cast<DWORD>(-1);
+    if (!WinHttpCrackUrl(wideUrl.c_str(), 0, 0, &parts) ||
+        (parts.nScheme != INTERNET_SCHEME_HTTP && parts.nScheme != INTERNET_SCHEME_HTTPS)) {
+        result.error = ERROR_WINHTTP_INVALID_URL;
+        return result;
+    }
+    const std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
+    std::wstring path(parts.lpszUrlPath, parts.dwUrlPathLength);
+    path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
+    if (path.empty()) path = L"/";
+
+    HINTERNET connection = WinHttpConnect(session.handle(), host.c_str(), parts.nPort, 0);
+    HINTERNET request = connection ? WinHttpOpenRequest(connection, method, path.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                                        WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                                        parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0)
+                                   : nullptr;
+    auto closeAll = [&] {
+        if (request) WinHttpCloseHandle(request);
+        if (connection) WinHttpCloseHandle(connection);
+    };
+    if (!request) {
+        result.error = GetLastError();
+        closeAll();
+        return result;
+    }
+
+    std::wstring extra;
+    if (!contentType.empty()) extra += L"Content-Type: " + toWide(contentType) + L"\r\n";
+    for (const auto& header : headers) extra += toWide(header.name) + L": " + toWide(header.value) + L"\r\n";
+    void* data = body.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(body.data());
+    const DWORD size = static_cast<DWORD>(body.size());
+    if (!WinHttpSendRequest(request, extra.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : extra.c_str(),
+                            extra.empty() ? 0 : static_cast<DWORD>(extra.size()), data, size, size, 0) ||
+        !WinHttpReceiveResponse(request, nullptr)) {
+        result.error = GetLastError();
+        closeAll();
+        return result;
+    }
+
+    DWORD status = 0;
+    DWORD statusSize = sizeof(status);
+    WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
+                        &status, &statusSize, WINHTTP_NO_HEADER_INDEX);
+    char buffer[16384];
+    for (;;) {
+        DWORD received = 0;
+        if (!WinHttpReadData(request, buffer, sizeof(buffer), &received)) {
+            result.error = GetLastError();
+            closeAll();
+            return result;
+        }
+        if (received == 0) break;
+        result.body.append(buffer, received);
+        if (result.body.size() > kMaxBody) {
+            result.error = ERROR_WINHTTP_INVALID_SERVER_RESPONSE;
+            closeAll();
+            return result;
+        }
+    }
+    result.status = static_cast<int>(status);
+    closeAll();
+    return result;
 }
 
 }  // namespace dm

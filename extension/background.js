@@ -210,6 +210,11 @@ api.runtime.onInstalled.addListener(() => {
 api.contextMenus.onClicked.addListener(async (info) => {
   if (info.menuItemId !== "download-link") return;
   const url = info.linkUrl || info.srcUrl;
+  if (DMLib.isMagnet(url)) {
+    // Torrent: o app manda para o Real-Debrid; sem cookies nem cabeçalhos.
+    await sendNative({ type: "add", token: crypto.randomUUID(), url, source: "link" });
+    return;
+  }
   if (!DMLib.isWebUrl(url)) return;
   await sendNative(await buildRequest(url, { referrer: info.pageUrl || "", source: "link" }));
 });

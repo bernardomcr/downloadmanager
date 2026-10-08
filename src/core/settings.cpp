@@ -28,6 +28,7 @@ std::string serializeSettings(const Settings& settings) {
     out << "schedule=" << (settings.scheduleEnabled ? 1 : 0) << '\n';
     out << "schedule-start=" << formatTimeOfDay(settings.scheduleStart) << '\n';
     out << "schedule-end=" << formatTimeOfDay(settings.scheduleEnd) << '\n';
+    if (!settings.realDebridToken.empty()) out << "real-debrid-token=" << settings.realDebridToken << '\n';
     return out.str();
 }
 
@@ -76,6 +77,8 @@ Settings parseSettings(const std::string& text) {
             std::istringstream number(value);
             int64_t limit = 0;
             if (number >> limit) settings.speedLimitKBps = std::max<int64_t>(limit, 0);
+        } else if (key == "real-debrid-token") {
+            settings.realDebridToken = value;
         } else if (key == "schedule") {
             settings.scheduleEnabled = value == "1";
         } else if (key == "schedule-start" || key == "schedule-end") {

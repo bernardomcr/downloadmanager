@@ -72,4 +72,14 @@ private:
     HttpResponse response_;
 };
 
+// Pedido pequeno a uma API (JSON): método, corpo e a resposta inteira na memória (até 4 MB).
+struct ApiResponse {
+    int status = 0;     // 0: não chegou a resposta (erro em `error`)
+    DWORD error = 0;
+    std::string body;
+};
+ApiResponse httpCall(const HttpSession& session, const wchar_t* method, const std::string& url,
+                     const std::vector<HttpHeader>& headers, const std::string& body = {},
+                     const std::string& contentType = {});
+
 }  // namespace dm

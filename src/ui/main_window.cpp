@@ -1,19 +1,28 @@
 #include "ui/main_window.h"
 
 #include <commctrl.h>
+#include <dwmapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <uxtheme.h>
 #include <windowsx.h>
 
+#include <thread>
+
 #include "app/browser_integration.h"
+#include "app/debrid_account.h"
+#include "core/debrid.h"
+#include "i18n/errors.h"
+#include "util/secure.h"
 #include "app/system.h"
 #include "i18n/strings.h"
 #include "resource.h"
 #include "core/video.h"
 #include "version.h"
 #include "ui/dialogs.h"
+#include "ui/theme.h"
 #include "ui/video_dialog.h"
+#include "core/format.h"
 #include "core/http_headers.h"
 #include "util/file_io.h"
 #include "util/unicode.h"
@@ -25,19 +34,27 @@ namespace ui {
 namespace {
 
 // Medidas em pixels lógicos (96 DPI); convertidas com scale().
-constexpr int kWindowWidth = 790;
-constexpr int kWindowHeight = 460;
-constexpr int kMinWidth = 560;
-constexpr int kMinHeight = 320;
+constexpr int kWindowWidth = 900;
+constexpr int kWindowHeight = 620;
+constexpr int kMinWidth = 640;
+constexpr int kMinHeight = 420;
 constexpr int kMargin = 8;
+constexpr int kFooterHeight = 30;    // velocidade total e contagem
 constexpr int kAddButtonWidth = 104;
-constexpr COLORREF kBackground = RGB(255, 255, 255);
+constexpr COLORREF kBackground = theme::kBackground;
 
 constexpr int kIdTabs = 100;
 constexpr int kIdAddButton = 101;
 constexpr UINT_PTR kRefreshTimer = 1;
 constexpr UINT kProcessBrowserRequests = WM_APP + 2;
 constexpr UINT kRefreshMilliseconds = 500;
+constexpr UINT kDebridChecked = WM_APP + 3;  // lParam: DebridCheckResult* (dono: quem recebe)
+
+struct DebridCheckResult {
+    app::DebridAccountCheck check;
+    std::string token;
+    bool connecting = false;  // true: o usuário clicou em Conectar (salva se der certo)
+};
 
 enum TrayCommand { kTrayOpen = 3001, kTrayExit };
 
@@ -61,7 +78,7 @@ bool MainWindow::create(HINSTANCE instance, int showCommand, bool startHidden) {
     const std::wstring dataDirectory = app::dataDirectory();
     settingsPath_ = dm::joinPath(dataDirectory, L"settings.ini");
     rulesPath_ = dm::joinPath(dataDirectory, L"rules.ini");
-    app::registerBrowserIntegration(dataDirectory);
+    if (!app::testProfile()) app::registerBrowserIntegration(dataDirectory);
     loadSettings();
     applyLanguage();
     updater_ = std::make_unique<app::Updater>(dataDirectory);
@@ -75,6 +92,7 @@ bool MainWindow::create(HINSTANCE instance, int showCommand, bool startHidden) {
     videoTools_ = std::make_unique<app::VideoTools>(dataDirectory);
     manager_->setVideoTools(videoTools_.get());
     loadRules();
+    applyDebridToken();  // antes de load(): torrents que estavam no Real-Debrid continuam
     videoTools_->updateIfStale();
 
     WNDCLASSEXW windowClass{};
@@ -88,9 +106,10 @@ bool MainWindow::create(HINSTANCE instance, int showCommand, bool startHidden) {
     windowClass.hIconSm = iconSmall_;
     if (!RegisterClassExW(&windowClass)) return false;
 
-    hwnd_ = CreateWindowExW(0, kClassName, tr(Str::AppTitle), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                            kWindowWidth, kWindowHeight, nullptr, nullptr, instance, this);
+    hwnd_ = CreateWindowExW(0, kClassName, tr(Str::AppTitle), WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT,
+                            CW_USEDEFAULT, kWindowWidth, kWindowHeight, nullptr, nullptr, instance, this);
     if (!hwnd_) return false;
+    theme::applyWindowFrame(hwnd_);
 
     // A janela foi criada no DPI do monitor; ajusta o tamanho inicial para ele.
     SetWindowPos(hwnd_, nullptr, 0, 0, scale(kWindowWidth), scale(kWindowHeight),
@@ -103,6 +122,19 @@ bool MainWindow::create(HINSTANCE instance, int showCommand, bool startHidden) {
 }
 
 bool MainWindow::preTranslate(MSG& message) {
+    // Atalhos: Ctrl+Tab troca de aba, Ctrl+N adiciona.
+    if (message.message == WM_KEYDOWN && GetKeyState(VK_CONTROL) < 0 &&
+        (message.hwnd == hwnd_ || IsChild(hwnd_, message.hwnd))) {
+        if (message.wParam == VK_TAB) {
+            const int step = GetKeyState(VK_SHIFT) < 0 ? kPageCount - 1 : 1;
+            showPage((currentPage_ + step) % kPageCount);
+            return true;
+        }
+        if (message.wParam == 'N') {
+            onAddClicked();
+            return true;
+        }
+    }
     HWND page = currentPage_ == kSettings ? settingsPage_.handle() : currentPage_ == kRules ? rulesPage_.handle() : nullptr;
     return page && IsChild(page, message.hwnd) && IsDialogMessageW(page, &message);
 }
@@ -149,6 +181,12 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                 PostMessageW(hwnd_, kProcessBrowserRequests, 0, 0);
             };
             manager_->load();
+            DragAcceptFiles(hwnd_, TRUE);  // arrastar .torrent para a janela
+            if (!settings_.realDebridToken.empty()) {
+                if (const auto token = dm::unprotectForCurrentUser(settings_.realDebridToken)) {
+                    checkDebridAccount(*token, false);
+                }
+            }
             tray_.add(hwnd_, iconSmall_, tr(Str::AppTitle));
             showPage(kDownloads);
             refreshLists();
@@ -174,6 +212,28 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
             SetWindowPos(hwnd_, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
                          suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+            return 0;
+        }
+
+        case WM_ERASEBKGND:
+            return 1;  // tudo é pintado em WM_PAINT (sem piscar)
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd_, &ps);
+            // Pinta numa imagem fora da tela e copia de uma vez.
+            RECT client;
+            GetClientRect(hwnd_, &client);
+            HDC memory = CreateCompatibleDC(dc);
+            HBITMAP bitmap = CreateCompatibleBitmap(dc, client.right, client.bottom);
+            HGDIOBJ old = SelectObject(memory, bitmap);
+            paint(memory);
+            BitBlt(dc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left,
+                   ps.rcPaint.bottom - ps.rcPaint.top, memory, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
+            SelectObject(memory, old);
+            DeleteObject(bitmap);
+            DeleteDC(memory);
+            EndPaint(hwnd_, &ps);
             return 0;
         }
 
@@ -240,6 +300,14 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             return TRUE;
         }
 
+        case kDebridChecked:
+            onDebridChecked(lParam);
+            return 0;
+
+        case WM_DROPFILES:
+            onDropFiles(reinterpret_cast<HDROP>(wParam));
+            return 0;
+
         case app::kMessageQuit:
             quitByInstaller_ = true;
             exitApp();
@@ -295,7 +363,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 void MainWindow::loadSettings() {
     if (const auto text = dm::readTextFile(settingsPath_)) settings_ = dm::parseSettings(*text);
     // Mantém o registro em dia (por exemplo, se o .exe mudou de pasta).
-    app::setStartWithWindows(settings_.startWithWindows);
+    if (!app::testProfile()) app::setStartWithWindows(settings_.startWithWindows);
 }
 
 void MainWindow::saveSettings() {
@@ -331,7 +399,7 @@ void MainWindow::onSettingsChanged(const dm::Settings& settings) {
     saveSettings();
     applyQueueSettings();
     applyRules();  // a pasta padrão pode ter mudado
-    if (startupChanged) app::setStartWithWindows(settings_.startWithWindows);
+    if (startupChanged && !app::testProfile()) app::setStartWithWindows(settings_.startWithWindows);
     if (languageChanged) {
         applyLanguage();
         applyTexts();
@@ -419,6 +487,13 @@ void MainWindow::createControls() {
             refreshUpdateStatus();
         }
     };
+    settingsPage_.onDebridConnect = [this](const std::string& token) { checkDebridAccount(token, true); };
+    settingsPage_.onDebridDisconnect = [this] {
+        settings_.realDebridToken.clear();
+        saveSettings();
+        applyDebridToken();
+        settingsPage_.setDebridStatus(tr(Str::SettingsDebridNotConnected), false);
+    };
     pages_[kSettings] = settingsPage_.create(hwnd_);
     settingsPage_.setSettings(settings_);
     updateTabTitles();
@@ -435,11 +510,16 @@ void MainWindow::applyDpi(UINT dpi) {
     lstrcpynW(logFont.lfFaceName, L"Segoe UI", LF_FACESIZE);
     HFONT newFont = CreateFontIndirectW(&logFont);
 
-    for (HWND control : {tabs_, addButton_, pages_[kDownloads], pages_[kCompleted]}) {
+    for (HWND control : {tabs_, addButton_}) {
         SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(newFont), TRUE);
     }
+    // As listas usam a fonte do tema (Segoe UI Variable no Windows 11).
+    if (listFont_) DeleteObject(listFont_);
+    listFont_ = theme::createFont(9, FW_NORMAL, dpi_);
     downloadsList_.applyDpi(dpi_);
     completedList_.applyDpi(dpi_);
+    downloadsList_.setFont(listFont_);
+    completedList_.setFont(listFont_);
     rulesPage_.applyDpi(dpi_);
 
     if (font_) DeleteObject(font_);
@@ -454,6 +534,7 @@ void MainWindow::layout() {
     GetClientRect(hwnd_, &client);
     const int margin = scale(kMargin);
     const int buttonWidth = scale(kAddButtonWidth);
+    footerHeight_ = scale(kFooterHeight);
 
     // A barra de abas ocupa só a altura dos cabeçalhos; as páginas ficam abaixo, sobre o fundo branco.
     RECT firstTab{};
@@ -464,12 +545,69 @@ void MainWindow::layout() {
     MoveWindow(addButton_, client.right - margin - buttonWidth, margin, buttonWidth, tabHeight - scale(2), TRUE);
 
     const int pageTop = margin + tabHeight + scale(4);
-    const int pageHeight = client.bottom - pageTop - margin;
+    const int pageHeight = std::max<int>(0, client.bottom - pageTop - footerHeight_);
     for (int i = 0; i < kPageCount; ++i) {
-        const int inset = i == kSettings || i == kRules ? scale(4) : 0;
+        const int inset = i == kSettings || i == kRules ? scale(8) : 0;
         MoveWindow(pages_[i], margin + inset, pageTop + inset, client.right - margin * 2 - inset, pageHeight - inset,
                    TRUE);
     }
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void MainWindow::paint(HDC dc) {
+    RECT client;
+    GetClientRect(hwnd_, &client);
+    theme::fillRect(dc, client, kBackground);
+    SetBkMode(dc, TRANSPARENT);
+
+    // Rodapé: o que está acontecendo, discreto.
+    RECT footerLine{0, client.bottom - footerHeight_, client.right, client.bottom - footerHeight_ + 1};
+    theme::fillRect(dc, footerLine, theme::kHairline);
+    if (listFont_) SelectObject(dc, listFont_);
+    RECT footer{scale(kMargin) + scale(4), client.bottom - footerHeight_, client.right - scale(kMargin) - scale(4),
+                client.bottom};
+    SetTextColor(dc, theme::kTextSecondary);
+    DrawTextW(dc, footerText_.c_str(), static_cast<int>(footerText_.size()), &footer,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    if (!footerSpeed_.empty()) {
+        SetTextColor(dc, theme::kText);
+        DrawTextW(dc, footerSpeed_.c_str(), static_cast<int>(footerSpeed_.size()), &footer,
+                  DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
+}
+
+void MainWindow::updateFooter() {
+    int running = 0;
+    int queued = 0;
+    double speed = 0;
+    for (const auto& item : manager_->items()) {
+        if (item->running()) {
+            ++running;
+            if (item->live.remote == dm::RemoteStage::None) speed += item->speed();
+        } else if (item->queued()) {
+            ++queued;
+        }
+    }
+    wchar_t text[128];
+    std::wstring status;
+    if (running > 0) {
+        std::swprintf(text, 128, tr(Str::FooterDownloading), running);
+        status = text;
+    }
+    if (queued > 0) {
+        std::swprintf(text, 128, tr(Str::FooterQueued), queued);
+        status += (status.empty() ? L"" : L"  ·  ") + std::wstring(text);
+    }
+    if (status.empty()) status = tr(Str::FooterIdle);
+    const std::wstring speedText =
+        speed > 0 ? L"↓ " + dm::toWide(dm::formatSpeed(speed, i18n::decimalSeparator())) : L"";
+    if (status == footerText_ && speedText == footerSpeed_) return;
+    footerText_ = status;
+    footerSpeed_ = speedText;
+    RECT client;
+    GetClientRect(hwnd_, &client);
+    RECT footer{0, client.bottom - footerHeight_, client.right, client.bottom};
+    InvalidateRect(hwnd_, &footer, FALSE);
 }
 
 void MainWindow::showPage(int page) {
@@ -509,6 +647,7 @@ void MainWindow::onTimer() {
     } else if (currentPage_ == kDownloads) {
         downloadsList_.refresh();
     }
+    updateFooter();
     checkWhenDone();
 }
 
@@ -574,23 +713,124 @@ std::wstring MainWindow::downloadFolder() const {
     return settings_.downloadFolder.empty() ? app::defaultDownloadFolder() : dm::toWide(settings_.downloadFolder);
 }
 
+void MainWindow::prepareAddRequest(AddRequest& request) const {
+    request.folder = downloadFolder();
+    request.defaultFolder = request.folder;
+    request.rules = &rules_;
+    request.rulesEnabled = settings_.rulesEnabled;
+    request.organize = true;  // sem diálogo, vai para a pasta padrão e as regras organizam
+}
+
 void MainWindow::onAddClicked() {
     AddRequest request;
-    request.folder = downloadFolder();
+    prepareAddRequest(request);
     if (!showAddDialog(hwnd_, request)) return;
     if (request.folder.empty()) request.folder = downloadFolder();
-    SHCreateDirectoryExW(nullptr, request.folder.c_str(), nullptr);
 
-    if (dm::looksLikeVideoPage(dm::toUtf8(request.url))) {
+    if (request.torrent) {
+        addTorrent(request.url, request.folder, request.organize);
+    } else if (dm::looksLikeVideoPage(dm::toUtf8(request.url))) {
+        SHCreateDirectoryExW(nullptr, request.folder.c_str(), nullptr);
         bool declined = false;
         addVideoFlow(request.url, request.folder, request.fileName, {}, {}, declined);
     } else {
+        SHCreateDirectoryExW(nullptr, request.folder.c_str(), nullptr);
         const uint64_t id = manager_->add(dm::toUtf8(request.url), request.folder, request.fileName,
                                           settings_.connections, {}, {}, /*rejectWebPages=*/true);
-        markOrganize(id, request.folder);
+        manager_->setOrganize(id, request.organize);
     }
     showPage(kDownloads);
     refreshLists();
+}
+
+uint64_t MainWindow::addTorrent(std::wstring input, const std::wstring& folder, bool organize) {
+    if (input.size() > 2 && input.front() == L'"' && input.back() == L'"') input = input.substr(1, input.size() - 2);
+    if (settings_.realDebridToken.empty()) {
+        MessageBoxW(IsWindowVisible(hwnd_) ? hwnd_ : nullptr, tr(Str::TorrentNeedsDebrid), tr(Str::AppTitle),
+                    MB_OK | MB_ICONINFORMATION);
+        showWindowFromTray();
+        showPage(kSettings);
+        return 0;
+    }
+    std::string source = dm::toUtf8(input);
+    std::wstring name;
+    if (dm::isMagnetLink(source)) {
+        name = dm::toWide(dm::magnetDisplayName(source));
+    } else {
+        // Guarda uma cópia: o original pode ser apagado ou movido antes de o Real-Debrid receber.
+        const std::wstring folderCopy = dm::joinPath(app::dataDirectory(), L"torrents");
+        SHCreateDirectoryExW(nullptr, folderCopy.c_str(), nullptr);
+        name = dm::fileNameOf(input);
+        const std::wstring copy = dm::uniquePath(folderCopy, name);
+        if (!CopyFileW(input.c_str(), copy.c_str(), TRUE)) return 0;
+        source = dm::toUtf8(copy);
+        if (name.size() > 8 && _wcsicmp(name.c_str() + name.size() - 8, L".torrent") == 0) name.resize(name.size() - 8);
+    }
+    SHCreateDirectoryExW(nullptr, folder.c_str(), nullptr);
+    const uint64_t id = manager_->addTorrent(source, folder, name, settings_.connections);
+    manager_->setOrganize(id, organize);
+    refreshLists();
+    return id;
+}
+
+void MainWindow::applyDebridToken() {
+    std::string token;
+    if (!settings_.realDebridToken.empty()) {
+        if (const auto plain = dm::unprotectForCurrentUser(settings_.realDebridToken)) token = *plain;
+    }
+    manager_->setDebridToken(std::move(token));
+}
+
+void MainWindow::checkDebridAccount(const std::string& token, bool connecting) {
+    settingsPage_.setDebridStatus(tr(Str::SettingsDebridChecking), !connecting, true);
+    const HWND window = hwnd_;
+    std::thread([window, token, connecting] {
+        auto* result = new DebridCheckResult{app::checkDebridAccount(token), token, connecting};
+        if (!PostMessageW(window, kDebridChecked, 0, reinterpret_cast<LPARAM>(result))) delete result;
+    }).detach();
+}
+
+void MainWindow::onDebridChecked(LPARAM lParam) {
+    std::unique_ptr<DebridCheckResult> result(reinterpret_cast<DebridCheckResult*>(lParam));
+    const app::DebridAccountCheck& check = result->check;
+    if (check.ok) {
+        if (result->connecting) {
+            settings_.realDebridToken = dm::protectForCurrentUser(result->token);
+            saveSettings();
+            applyDebridToken();
+        }
+        wchar_t text[300];
+        const std::wstring user = dm::toWide(check.user.username);
+        const std::wstring until = dm::toWide(
+            dm::formatDebridDate(check.user.expiration, i18n::currentLanguage() == i18n::Language::Portuguese));
+        if (check.user.premium && !until.empty()) {
+            std::swprintf(text, 300, tr(Str::SettingsDebridConnected), user.c_str(), until.c_str());
+        } else {
+            std::swprintf(text, 300, tr(Str::SettingsDebridConnectedFree), user.c_str());
+        }
+        settingsPage_.setDebridStatus(text, true);
+        return;
+    }
+    const std::wstring reason = check.networkError != 0
+                                    ? i18n::describeError(dm::DownloadError::Network, check.networkError)
+                                    : i18n::describeDebridError(check.error);
+    wchar_t text[400];
+    std::swprintf(text, 400, tr(Str::SettingsDebridFailed), reason.c_str());
+    // Conferindo um token já salvo: continua conectado (pode ser só a internet); o usuário decide desconectar.
+    settingsPage_.setDebridStatus(text, !result->connecting && !settings_.realDebridToken.empty());
+}
+
+void MainWindow::onDropFiles(HDROP drop) {
+    const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+    bool added = false;
+    for (UINT i = 0; i < count; ++i) {
+        wchar_t path[MAX_PATH];
+        if (!DragQueryFileW(drop, i, path, MAX_PATH) || !isTorrentInput(path)) continue;
+        if (addTorrent(path, downloadFolder(), true) == 0 && settings_.realDebridToken.empty()) break;
+        added = true;
+    }
+    DragFinish(drop);
+    if (added) showPage(kDownloads);
 }
 
 uint64_t MainWindow::addVideoFlow(const std::wstring& url, const std::wstring& folder, const std::wstring& title,
@@ -630,9 +870,16 @@ void MainWindow::processBrowserRequests() {
 }
 
 void MainWindow::onBrowserRequest(const dm::BrowserRequest& browserRequest) {
+    if (dm::isMagnetLink(browserRequest.url)) {
+        // Magnet pelo clique direito: vai para o Real-Debrid (a extensão não espera resposta).
+        browserTickets_.erase(browserRequest.token);
+        if (addTorrent(dm::toWide(browserRequest.url), downloadFolder(), true) != 0) showPage(kDownloads);
+        return;
+    }
     AddRequest request;
+    prepareAddRequest(request);
+    request.fromBrowser = true;
     request.url = dm::toWide(browserRequest.url);
-    request.folder = downloadFolder();
     request.fileName = dm::toWide(dm::sanitizeFileName(browserRequest.fileName));
     if (browserRequest.fileName.empty()) request.fileName.clear();
     request.headers = dm::browserHeaders(browserRequest);
@@ -667,7 +914,7 @@ void MainWindow::onBrowserRequest(const dm::BrowserRequest& browserRequest) {
     SHCreateDirectoryExW(nullptr, request.folder.c_str(), nullptr);
     const uint64_t id = manager_->add(dm::toUtf8(request.url), request.folder, request.fileName, settings_.connections,
                                       request.headers, request.userAgent);
-    markOrganize(id, request.folder);
+    manager_->setOrganize(id, request.organize);
     if (ticket != browserTickets_.end()) ticket->second = {false, false, id};
     refreshLists();
 }

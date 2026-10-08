@@ -10,7 +10,21 @@
 
 namespace app {
 
+std::wstring testProfileDirectory() {
+    wchar_t value[MAX_PATH];
+    const DWORD length = GetEnvironmentVariableW(L"DM_TEST_PROFILE", value, MAX_PATH);
+    return length > 0 && length < MAX_PATH ? std::wstring(value, length) : std::wstring();
+}
+
+bool testProfile() {
+    return !testProfileDirectory().empty();
+}
+
 std::wstring dataDirectory() {
+    if (const std::wstring test = testProfileDirectory(); !test.empty()) {
+        SHCreateDirectoryExW(nullptr, test.c_str(), nullptr);
+        return test;
+    }
     PWSTR base = nullptr;
     std::wstring directory;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &base))) {
