@@ -55,6 +55,10 @@ public:
     int64_t position(size_t index) const;
     int64_t end(size_t index) const;
 
+    // Muda o mínimo para dividir (o motor ajusta pela velocidade: dividir o que a conexão dona termina em
+    // poucos segundos sai mais caro que abrir uma conexão nova). Nunca abaixo do mínimo do construtor.
+    void setMinSplit(int64_t bytes);
+
     bool allComplete() const;
     int64_t bytesWritten() const;
     int64_t totalSize() const { return total_; }
@@ -64,6 +68,7 @@ private:
     mutable std::mutex mutex_;
     std::vector<Segment> segments_;
     int64_t total_;
+    int64_t baseMinSplit_;
     int64_t minSplit_;
 };
 

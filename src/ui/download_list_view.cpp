@@ -119,9 +119,9 @@ HWND DownloadListView::create(HWND parent, Mode mode, app::DownloadManager& mana
 
 std::span<const DownloadListView::Column> DownloadListView::columns() const {
     static constexpr Column kActive[] = {
-        {Str::ColName, 236, LVCFMT_LEFT},     {Str::ColSize, 84, LVCFMT_RIGHT},
-        {Str::ColProgress, 160, LVCFMT_LEFT}, {Str::ColSpeed, 100, LVCFMT_RIGHT},
-        {Str::ColTimeLeft, 116, LVCFMT_RIGHT}, {Str::ColStatus, 120, LVCFMT_LEFT},
+        {Str::ColName, 222, LVCFMT_LEFT},     {Str::ColSize, 76, LVCFMT_RIGHT},
+        {Str::ColProgress, 160, LVCFMT_LEFT}, {Str::ColSpeed, 92, LVCFMT_RIGHT},
+        {Str::ColTimeLeft, 112, LVCFMT_RIGHT}, {Str::ColStatus, 120, LVCFMT_LEFT},
     };
     static constexpr Column kCompleted[] = {
         {Str::ColName, 300, LVCFMT_LEFT},
@@ -180,6 +180,8 @@ void DownloadListView::applyDpi(UINT dpi) {
     for (int i = 0; i < static_cast<int>(cols.size()); ++i) ListView_SetColumnWidth(list_, i, scale(cols[i].width));
     if (headerFont_) DeleteObject(headerFont_);
     headerFont_ = theme::createFont(8, FW_SEMIBOLD, dpi_);
+    if (pillFont_) DeleteObject(pillFont_);
+    pillFont_ = theme::createFont(8, FW_SEMIBOLD, dpi_);
     if (HWND header = ListView_GetHeader(list_)) SendMessageW(header, WM_SETFONT, reinterpret_cast<WPARAM>(headerFont_), TRUE);
     fitLastColumn();
 }
@@ -356,7 +358,6 @@ std::wstring DownloadListView::cellText(const app::DownloadItem& item, int colum
             return i18n::speedText(item.speed());
         }
         case 4:
-            if (item.live.remote != dm::RemoteStage::None) return {};
             if (item.running() && item.live.secondsLeft >= 0) return dm::toWide(dm::formatDuration(item.live.secondsLeft));
             if (item.running() && record.totalSize > 0 && item.speed() > 1) {
                 const auto seconds =
@@ -404,11 +405,14 @@ std::wstring DownloadListView::cellText(const app::DownloadItem& item, int colum
 
 COLORREF DownloadListView::cellColor(const app::DownloadItem& item, int column) const {
     if (column == kNameColumn) return theme::kText;
+    // Etapa 1 do Real-Debrid (no servidor deles): números e status em roxo, para não confundir com o PC.
+    const bool onServer = item.record.debrid && item.running();
     if (mode_ == Mode::Active && column == kStatusColumn) {
         if (item.record.state == dm::RecordState::Failed) return theme::kDanger;
-        if (item.running()) return item.live.remote != dm::RemoteStage::None ? RGB(109, 40, 217) : theme::kAccent;
+        if (item.running()) return onServer ? theme::kDebrid : theme::kAccent;
         return theme::kTextSecondary;
     }
+    if (mode_ == Mode::Active && onServer && (column == 3 || column == 4)) return theme::kDebrid;
     if (mode_ == Mode::Completed && column == 3 && item.organizing) return theme::kAccent;
     return theme::kTextSecondary;
 }
@@ -445,7 +449,7 @@ void DownloadListView::drawProgress(HDC dc, const RECT& cell, const app::Downloa
     if (record.state == dm::RecordState::Failed) {
         colors = theme::kBarFailed;
     } else if (item.running()) {
-        colors = item.live.remote != dm::RemoteStage::None ? theme::kBarRemote : theme::kBarActive;
+        colors = record.debrid ? theme::kBarRemote : theme::kBarActive;
     } else if (item.queued()) {
         colors = theme::kBarQueued;
     }
@@ -456,8 +460,34 @@ void DownloadListView::drawProgress(HDC dc, const RECT& cell, const app::Downloa
         theme::fillRoundRectGradient(dc, filled, barHeight / 2, colors.from, colors.to);
     }
     if (textRect.right > textRect.left) {
-        drawText(dc, text, textRect, item.running() ? theme::kText : theme::kTextSecondary, DT_RIGHT);
+        const COLORREF color = !item.running() ? theme::kTextSecondary : record.debrid ? theme::kDebrid : theme::kText;
+        drawText(dc, text, textRect, color, DT_RIGHT);
     }
+}
+
+void DownloadListView::drawStatus(HDC dc, const RECT& cell, const app::DownloadItem& item) {
+    RECT text = cell;
+    text.left += scale(kCellPadding);
+    text.right -= scale(kCellPadding);
+    // Torrent pelo Real-Debrid: etiqueta da etapa. Roxa = baixando no servidor deles; azul = do servidor para o PC.
+    if (item.record.debrid || item.record.viaDebrid) {
+        const std::wstring label = tr(item.record.debrid ? Str::PillDebridServer : Str::PillToPc);
+        const COLORREF color = item.record.debrid ? theme::kDebrid : theme::kAccent;
+        const COLORREF fill = item.record.debrid ? theme::kDebridSoft : theme::kAccentSoft;
+        HGDIOBJ old = SelectObject(dc, pillFont_ ? pillFont_ : font_);
+        SIZE size{};
+        GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &size);
+        const int height = scale(18);
+        const int top = cell.top + (cell.bottom - cell.top - height) / 2;
+        RECT pill{text.left, top, text.left + size.cx + scale(14), top + height};
+        if (pill.right < text.right) {
+            theme::fillRoundRect(dc, pill, height / 2, fill);
+            drawText(dc, label, pill, color, DT_CENTER);
+            text.left = pill.right + scale(8);
+        }
+        SelectObject(dc, old);
+    }
+    drawText(dc, cellText(item, kStatusColumn), text, cellColor(item, kStatusColumn), DT_LEFT);
 }
 
 void DownloadListView::drawCell(NMLVCUSTOMDRAW* draw) {
@@ -483,6 +513,7 @@ void DownloadListView::drawCell(NMLVCUSTOMDRAW* draw) {
 
     if (column == kNameColumn) return drawName(dc, cell, *item);
     if (mode_ == Mode::Active && column == kProgressColumn) return drawProgress(dc, cell, *item);
+    if (mode_ == Mode::Active && column == kStatusColumn) return drawStatus(dc, cell, *item);
 
     const auto cols = columns();
     RECT text = cell;

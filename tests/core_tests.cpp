@@ -124,6 +124,15 @@ void testSplitting() {
     planner.commit(*second, planner.reserve(*second, 1000).length);
     CHECK(planner.allComplete());
     CHECK(planner.bytesWritten() == 1000);
+
+    // Mínimo dinâmico: conexão rápida termina sozinha o que ainda falta (não vale abrir outra).
+    dm::SegmentPlanner fast(10'000, 100);
+    const size_t owner = fast.acquireFirst();
+    fast.setMinSplit(6'000);  // faltam 10.000 < 2 x 6.000
+    CHECK(!fast.acquire().has_value());
+    fast.setMinSplit(10);  // nunca abaixo do mínimo do construtor (100)
+    const auto half = fast.acquire();
+    CHECK(half && fast.end(owner) == 5'000);
 }
 
 void testReleaseAndRestore() {
@@ -209,9 +218,13 @@ void testDownloadList() {
     dm::DownloadRecord sent = torrent;
     sent.id = 10;
     sent.debridId = "ABC123";
-    const auto torrents = dm::parseDownloadList(dm::serializeDownloadList({torrent, sent}));
-    CHECK(torrents.size() == 2 && torrents[0].debrid && torrents[0].debridId.empty() && torrents[1].debrid &&
+    dm::DownloadRecord direct = record;
+    direct.id = 11;
+    direct.viaDebrid = true;
+    const auto torrents = dm::parseDownloadList(dm::serializeDownloadList({torrent, sent, direct}));
+    CHECK(torrents.size() == 3 && torrents[0].debrid && torrents[0].debridId.empty() && torrents[1].debrid &&
           torrents[1].debridId == "ABC123" && torrents[0].url == torrent.url);
+    CHECK(torrents[2].viaDebrid && !torrents[2].debrid && !torrents[0].viaDebrid);
 
     const auto parsed = dm::parseDownloadList(dm::serializeDownloadList({record, second}));
     CHECK(parsed.size() == 2);

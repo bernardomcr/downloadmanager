@@ -48,7 +48,7 @@ constexpr int kIdTabs = 100;
 constexpr int kIdAddButton = 101;
 constexpr UINT_PTR kRefreshTimer = 1;
 constexpr UINT kProcessBrowserRequests = WM_APP + 2;
-constexpr UINT kRefreshMilliseconds = 500;
+constexpr UINT kRefreshMilliseconds = 100;  // lista "ao vivo": velocidade e tempo 10 vezes por segundo
 constexpr UINT kDebridChecked = WM_APP + 3;  // lParam: DebridCheckResult* (dono: quem recebe)
 
 struct DebridCheckResult {
@@ -658,7 +658,7 @@ void MainWindow::onTimer() {
     }
     if (changed) {
         refreshLists();
-    } else if (currentPage_ == kDownloads) {
+    } else if (currentPage_ == kDownloads && manager_->runningCount() > 0) {
         downloadsList_.refresh();
     }
     updateFooter();
@@ -982,7 +982,7 @@ void MainWindow::processAdoptions() {
     for (size_t i = 0; i < pendingAdoptions_.size();) {
         PendingAdoption& adoption = pendingAdoptions_[i];
         // O navegador (ou o antivírus) pode segurar o arquivo por alguns segundos depois de terminar.
-        if (adoptFile(adoption.request) || ++adoption.attempts >= 20) {
+        if (adoptFile(adoption.request) || ++adoption.attempts >= static_cast<int>(10000 / kRefreshMilliseconds)) {
             pendingAdoptions_.erase(pendingAdoptions_.begin() + static_cast<std::ptrdiff_t>(i));
         } else {
             ++i;

@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -84,7 +85,8 @@ private:
                      const std::string& suggestedName);
     void runSegmented(std::unique_ptr<HttpRequest> probeRequest, bool resuming);
     void runSingleStream(std::unique_ptr<HttpRequest> probeRequest);
-    void worker(std::optional<size_t> segment, std::unique_ptr<HttpRequest> request);
+    // index: ordem de criação (a rampa pode mandar as últimas embora com activeLimit_).
+    void worker(int index, std::optional<size_t> segment, std::unique_ptr<HttpRequest> request);
     void monitor();
     void saveState();
     bool finalizeFile();
@@ -121,6 +123,8 @@ private:
     std::atomic<bool> resumable_{false};
 
     std::atomic<int> runningWorkers_{0};
+    std::atomic<int> activeLimit_{32};         // conexões com índice >= isso saem (rampa voltou atrás)
+    std::function<void()> spawnWorker_;        // cria mais uma conexão (só durante runSegmented)
     std::mutex stopMutex_;
     std::condition_variable stopSignal_;
     mutable std::mutex requestsMutex_;

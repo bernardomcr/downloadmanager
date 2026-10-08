@@ -21,6 +21,8 @@ constexpr COLORREF kNeutralSoft = RGB(243, 244, 246);
 constexpr COLORREF kRowHover = RGB(246, 248, 251);
 constexpr COLORREF kRowSelected = RGB(235, 241, 254);
 constexpr COLORREF kDanger = RGB(220, 38, 38);
+constexpr COLORREF kDebrid = RGB(109, 40, 217);      // etapa no servidor do Real-Debrid
+constexpr COLORREF kDebridSoft = RGB(243, 237, 255);
 constexpr COLORREF kSuccess = RGB(22, 163, 74);
 
 // Barra de progresso: trilho e preenchimento (dois tons: gradiente sutil) por estado.

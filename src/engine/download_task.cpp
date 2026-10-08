@@ -1,6 +1,7 @@
 #include "engine/download_task.h"
 
 #include <algorithm>
+#include <deque>
 
 #include "core/http_headers.h"
 #include "core/resume_state.h"
@@ -15,7 +16,14 @@ namespace {
 using namespace std::chrono_literals;
 
 constexpr size_t kBufferSize = 128 * 1024;
-constexpr auto kMonitorInterval = 500ms;
+constexpr auto kMonitorInterval = 100ms;
+constexpr auto kSpeedWindow = 1500ms;
+constexpr auto kRampStep = 1000ms;    // tempo mínimo de cada passo da rampa de conexões
+constexpr auto kRampMeasure = 700ms;  // parte final do passo usada para medir (conexões novas já aceleraram)
+constexpr double kRampGain = 1.20;    // continua dobrando só se o passo deixou o total 20% mais rápido
+constexpr double kRampMinRemainingSeconds = 8.0;  // o que termina antes disso não ganha com conexões novas
+// Divide um pedaço em andamento só se a dona levaria mais de 2x isto para terminá-lo (ver monitor()).
+constexpr double kSplitHorizonSeconds = 4.0;
 constexpr auto kSaveInterval = 3s;
 
 // 0,5 s, 1 s, 2 s, 4 s, 8 s...: a primeira nova tentativa é quase imediata.
@@ -307,14 +315,19 @@ void DownloadTask::runSegmented(std::unique_ptr<HttpRequest> probeRequest, bool 
     saveState();
     setStatus(DownloadStatus::Downloading);
 
+    // Conexões em rampa: começa com uma e o monitor() vai dobrando enquanto a velocidade total sobe.
     std::vector<std::thread> workers;
-    runningWorkers_ = options_.connections;
-    workers.emplace_back(&DownloadTask::worker, this, firstSegment, std::move(probeRequest));
-    for (int i = 1; i < options_.connections; ++i) {
-        workers.emplace_back(&DownloadTask::worker, this, std::nullopt, nullptr);
-    }
+    runningWorkers_ = 1;
+    activeLimit_ = options_.connections;
+    workers.emplace_back(&DownloadTask::worker, this, 0, firstSegment, std::move(probeRequest));
+    spawnWorker_ = [&] {
+        const int index = static_cast<int>(workers.size());
+        ++runningWorkers_;
+        workers.emplace_back(&DownloadTask::worker, this, index, std::nullopt, nullptr);
+    };
 
     monitor();
+    spawnWorker_ = nullptr;
     for (auto& thread : workers) thread.join();
 
     if (planner_->allComplete() && !pauseRequested_) {
@@ -332,7 +345,7 @@ void DownloadTask::runSegmented(std::unique_ptr<HttpRequest> probeRequest, bool 
     status_ = error_ == DownloadError::None ? DownloadStatus::Paused : DownloadStatus::Failed;
 }
 
-void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpRequest> request) {
+void DownloadTask::worker(int index, std::optional<size_t> segment, std::unique_ptr<HttpRequest> request) {
     std::vector<char> buffer(kBufferSize);
     int consecutiveFailures = 0;
     bool gotData = false;  // esta conexão já recebeu alguma coisa
@@ -353,8 +366,14 @@ void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpReq
         return false;
     };
     auto canBowOut = [&] { return !gotData && leaveIfOthers(); };
+    bool retired = false;
+    const bool debug = GetEnvironmentVariableW(L"DM_DEBUG_SEGMENTS", nullptr, 0) > 0;
+    auto debugStart = std::chrono::steady_clock::now();
+    int64_t debugFrom = 0;
+    int64_t debugBytes = 0;
 
     while (!stopRequested_) {
+        if (index >= activeLimit_ && leaveIfOthers()) break;  // excedente antes de pegar outro pedaço
         if (!segment) {
             segment = planner_->acquire();
             if (!segment) break;
@@ -368,7 +387,13 @@ void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpReq
             registerRequest(request.get());
             const int64_t from = planner_->position(*segment);
             const int64_t to = planner_->end(*segment) - 1;
-            if (!request->send(*session_, currentUrl_, options_.headers, from, to, code)) {
+            debugStart = std::chrono::steady_clock::now();
+            debugFrom = from;
+            debugBytes = 0;
+            if (debug) std::fprintf(stderr, "[%d] pede %lld-%lld (%lld KB)\n", index, (long long)from, (long long)to, (long long)((to - from + 1) / 1024));
+            const bool sentOk = request->send(*session_, currentUrl_, options_.headers, from, to, code);
+            if (debug) std::fprintf(stderr, "[%d] resposta em %.2fs status %d\n", index, std::chrono::duration<double>(std::chrono::steady_clock::now() - debugStart).count(), sentOk ? request->response().status : -(int)code);
+            if (!sentOk) {
                 failed = true;
             } else {
                 const HttpResponse& response = request->response();
@@ -416,6 +441,7 @@ void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpReq
                     break;
                 }
                 planner_->commit(*segment, claim.length);
+                debugBytes += claim.length;
                 downloaded_ += claim.length;
                 consecutiveFailures = 0;
                 gotData = true;
@@ -423,7 +449,17 @@ void DownloadTask::worker(std::optional<size_t> segment, std::unique_ptr<HttpReq
             if (!throttle(received)) break;
             // Fim do pedaço (que pode ter encolhido porque outra conexão pegou a metade final).
             if (planner_->reachedEnd(*segment)) break;
+            // A rampa viu que conexões demais deixavam mais lento: as excedentes devolvem o pedaço e saem.
+            if (index >= activeLimit_ && leaveIfOthers()) {
+                retired = true;
+                break;
+            }
         }
+        if (debug) {
+            const double took = std::chrono::duration<double>(std::chrono::steady_clock::now() - debugStart).count();
+            std::fprintf(stderr, "[%d] fim de %lld: %lld KB em %.2fs = %.1f MB/s%s%s\n", index, (long long)debugFrom, (long long)(debugBytes / 1024), took, took > 0 ? debugBytes / took / 1e6 : 0.0, failed ? " FALHOU" : "", retired ? " SAIU" : "");
+        }
+        if (retired) break;  // o fim da função devolve o pedaço (com o que já foi baixado) e fecha a conexão
 
         unregisterRequest(request.get());
         request.reset();
@@ -515,23 +551,91 @@ void DownloadTask::runSingleStream(std::unique_ptr<HttpRequest> request) {
 }
 
 void DownloadTask::monitor() {
-    auto lastSample = std::chrono::steady_clock::now();
-    auto lastSave = lastSample;
-    int64_t lastBytes = downloaded_;
+    using Clock = std::chrono::steady_clock;
+    // Velocidade "ao vivo": amostras a cada 100 ms e média do último 1,5 s (janela deslizante). Atualiza
+    // 10 vezes por segundo sem pular, e reage logo quando a velocidade muda de verdade.
+    struct Sample {
+        Clock::time_point time;
+        int64_t bytes;
+    };
+    std::deque<Sample> window{{Clock::now(), downloaded_.load()}};
+    auto lastSave = window.front().time;
+
+    // Rampa de conexões: 1 -> 2 -> 4 -> 8 -> 16 enquanto cada passo deixar o total pelo menos 20% mais
+    // rápido. Servidor que limita por conexão ganha todas; servidor que limita por usuário/IP (ou demora a
+    // responder cada conexão nova, como o Real-Debrid) fica com poucas. Se o último passo piorou, volta.
+    bool ramping = static_cast<bool>(spawnWorker_) && options_.connections > 1;
+    int spawned = 1;
+    int bestCount = 1;
+    double bestSpeed = 0;
+    double previousMeasure = 0;
+    auto stepStart = window.front().time;
+    auto lastRampCheck = stepStart;
+    // Velocidade só dos últimos instantes do passo (as conexões novas já aceleraram).
+    auto recentSpeed = [&](Clock::time_point now) {
+        const auto from = now - kRampMeasure;
+        auto first = window.begin();
+        while (std::next(first) != window.end() && std::next(first)->time <= from) ++first;
+        const double seconds = std::chrono::duration<double>(window.back().time - first->time).count();
+        return seconds > 0.1 ? static_cast<double>(window.back().bytes - first->bytes) / seconds : 0.0;
+    };
 
     std::unique_lock lock(stopMutex_);
     while (runningWorkers_ > 0) {
         stopSignal_.wait_for(lock, kMonitorInterval, [&] { return runningWorkers_ == 0; });
 
-        const auto now = std::chrono::steady_clock::now();
-        const double seconds = std::chrono::duration<double>(now - lastSample).count();
-        if (seconds > 0.2) {
-            const int64_t bytes = downloaded_;
-            const double instant = static_cast<double>(bytes - lastBytes) / seconds;
-            const double previous = speed_;
-            speed_ = previous == 0 ? instant : previous * 0.7 + instant * 0.3;
-            lastSample = now;
-            lastBytes = bytes;
+        const auto now = Clock::now();
+        window.push_back({now, downloaded_.load()});
+        while (window.size() > 2 && now - window[1].time >= kSpeedWindow) window.pop_front();
+        const double seconds = std::chrono::duration<double>(now - window.front().time).count();
+        if (seconds >= 0.25) {
+            speed_ = static_cast<double>(window.back().bytes - window.front().bytes) / seconds;
+        }
+        // Dividir um pedaço só compensa se a conexão dona ainda levaria mais de ~8 s para terminá-lo:
+        // cada conexão nova paga o tempo de resposta do servidor e começa devagar (no Real-Debrid, ~0,6 s +
+        // ~2 s acelerando). Sem isso, o fim do download virava uma fila de pedacinhos lentos.
+        if (planner_ && speed_ > 0) {
+            size_t active = 1;
+            {
+                std::lock_guard requests(requestsMutex_);
+                active = std::max<size_t>(activeRequests_.size(), 1);
+            }
+            const double perConnection = speed_ / static_cast<double>(active);
+            planner_->setMinSplit(static_cast<int64_t>(perConnection * kSplitHorizonSeconds));
+        }
+
+        if (ramping && !stopRequested_ && now - stepStart >= kRampStep && now - lastRampCheck >= kRampMeasure) {
+            lastRampCheck = now;
+            const double current = recentSpeed(now);
+            const int64_t remaining = totalSize_ - downloaded_;
+            // As conexões ainda estão acelerando (TCP começa devagar)? Espera estabilizar antes de decidir,
+            // senão a medida engana (até ~5 s por passo).
+            // A primeira medida do passo só serve de referência.
+            const bool accelerating = previousMeasure <= 0 || current > previousMeasure * 1.15;
+            previousMeasure = current;
+            if ((current <= 0 || accelerating) && now - stepStart < kRampStep * 4) {
+                // espera
+            } else if (current > 0 && static_cast<double>(remaining) / current < kRampMinRemainingSeconds) {
+                ramping = false;  // termina logo com as conexões que já tem
+            } else if (spawned == 1 || current > bestSpeed * kRampGain) {
+                // Quase dobrou no último passo (servidor limita por conexão): o próximo passo quadruplica.
+                const int factor = spawned > 1 && current > bestSpeed * 1.7 ? 4 : 2;
+                if (current > bestSpeed) {
+                    bestSpeed = current;
+                    bestCount = spawned;
+                }
+                const int target = std::min(options_.connections, spawned * factor);
+                lock.unlock();
+                for (; spawned < target && !stopRequested_; ++spawned) spawnWorker_();
+                lock.lock();
+                if (spawned >= options_.connections) ramping = false;
+                stepStart = now;
+                previousMeasure = 0;
+            } else {
+                // Mais conexões não ajudaram. Se ficou bem pior, volta para a melhor quantidade medida.
+                if (current < bestSpeed * 0.85) activeLimit_ = bestCount;
+                ramping = false;
+            }
         }
         if (now - lastSave >= kSaveInterval && planner_) {
             lock.unlock();

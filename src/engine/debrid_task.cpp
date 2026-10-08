@@ -12,7 +12,7 @@
 namespace dm {
 namespace {
 
-constexpr int kPollMilliseconds = 3000;
+constexpr int kPollMilliseconds = 1000;  // andamento no Real-Debrid (limite da API: 250 pedidos por minuto)
 constexpr int kMaxNetworkRetries = 5;
 constexpr size_t kMaxTorrentFile = 8 << 20;
 

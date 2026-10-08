@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -123,7 +124,7 @@ private:
     std::wstring listPath_;
     std::vector<std::unique_ptr<DownloadItem>> items_;
     uint64_t nextId_ = 1;
-    int ticksSinceSave_ = 0;
+    std::chrono::steady_clock::time_point lastSave_ = std::chrono::steady_clock::now();
     int maxRunning_ = 3;
     bool scheduleEnabled_ = false;
     int scheduleStart_ = 0;

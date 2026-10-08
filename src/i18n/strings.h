@@ -240,6 +240,8 @@ enum class Str {
     CompleteExtractFailed,
     CompleteNoExtractor,
     MenuExtract,
+    PillDebridServer,
+    PillToPc,
     Count  // manter por último
 };
 

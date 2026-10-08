@@ -201,10 +201,10 @@ constexpr Table kPortuguese = {
     L"Muitos torrents ativos no Real-Debrid. Tente de novo mais tarde.",
     L"Real-Debrid indisponível no momento. Tente de novo mais tarde.",
     L"O Real-Debrid recusou o pedido.",
-    L"Real-Debrid: preparando",
-    L"Real-Debrid: na fila",
-    L"No Real-Debrid",
-    L"Real-Debrid: gerando links",
+    L"Preparando",
+    L"Na fila do servidor",
+    L"Baixando no servidor",
+    L"Gerando o link direto",
     L"Real-Debrid (torrents e magnets)",
     L"Token da API (real-debrid.com/apitoken):",
     L"Conectar",
@@ -243,6 +243,8 @@ constexpr Table kPortuguese = {
     L"Não foi possível extrair (arquivo com senha, corrompido ou incompleto?).",
     L"Nenhum programa de extração encontrado (instale o NanaZip, 7-Zip ou WinRAR).",
     L"Extrair",
+    L"Servidor RD",
+    L"Para o PC",
 };
 
 constexpr Table kEnglish = {
@@ -434,10 +436,10 @@ constexpr Table kEnglish = {
     L"Too many active torrents on Real-Debrid. Try again later.",
     L"Real-Debrid is unavailable right now. Try again later.",
     L"Real-Debrid refused the request.",
-    L"Real-Debrid: preparing",
-    L"Real-Debrid: queued",
-    L"On Real-Debrid",
-    L"Real-Debrid: getting links",
+    L"Preparing",
+    L"Queued on server",
+    L"Downloading on server",
+    L"Getting the direct link",
     L"Real-Debrid (torrents and magnets)",
     L"API token (real-debrid.com/apitoken):",
     L"Connect",
@@ -476,6 +478,8 @@ constexpr Table kEnglish = {
     L"Could not extract (password-protected, corrupt or incomplete archive?).",
     L"No extraction program found (install NanaZip, 7-Zip or WinRAR).",
     L"Extract",
+    L"RD server",
+    L"To PC",
 };
 
 // Falha na compilação se alguma tradução ficou faltando.

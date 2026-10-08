@@ -68,6 +68,7 @@ std::string serializeDownloadList(const std::vector<DownloadRecord>& records) {
         if (!record.errorText.empty()) out << "error-text " << singleLine(record.errorText) << '\n';
         if (record.organize) out << "organize 1\n";
         if (record.debrid) out << "debrid " << (record.debridId.empty() ? "-" : singleLine(record.debridId)) << '\n';
+        if (record.viaDebrid) out << "via-debrid 1\n";
         out << "error " << record.errorCode << ' ' << record.errorDetail << '\n';
     }
     return out.str();
@@ -124,7 +125,7 @@ std::vector<DownloadRecord> parseDownloadList(const std::string& text) {
         else if (key == "debrid") {
             current.debrid = true;
             current.debridId = value == "-" ? "" : value;
-        }
+        } else if (key == "via-debrid") current.viaDebrid = value == "1";
         else if (key == "error") {
             std::istringstream numbers(value);
             numbers >> current.errorCode >> current.errorDetail;

@@ -68,6 +68,17 @@ HttpSession::HttpSession(const std::wstring& userAgent) {
         BOOL enabled = TRUE;
         WinHttpSetOption(session_, WINHTTP_OPTION_TCP_FAST_OPEN, &enabled, sizeof(enabled));
         WinHttpSetOption(session_, WINHTTP_OPTION_TLS_FALSE_START, &enabled, sizeof(enabled));
+        // Só HTTP/1.1: com HTTP/2 as "várias conexões" viram fluxos dentro de UMA conexão TCP e disputam o
+        // mesmo canal (no Real-Debrid, 16 pedaços em paralelo davam metade da velocidade de um só).
+#ifndef WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL
+#define WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL 133
+#endif
+        DWORD protocolsAllowed = 0;  // nem HTTP/2 nem HTTP/3
+        WinHttpSetOption(session_, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL, &protocolsAllowed, sizeof(protocolsAllowed));
+        // Sem limite de conexões por servidor dentro da sessão (cada pedaço tem a sua).
+        DWORD maxConnections = 64;
+        WinHttpSetOption(session_, WINHTTP_OPTION_MAX_CONNS_PER_SERVER, &maxConnections, sizeof(maxConnections));
+        WinHttpSetOption(session_, WINHTTP_OPTION_MAX_CONNS_PER_1_0_SERVER, &maxConnections, sizeof(maxConnections));
     }
 }
 

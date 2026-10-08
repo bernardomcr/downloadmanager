@@ -43,6 +43,7 @@ struct DownloadRecord {
     // Quando o serviço termina, o item vira um download direto comum (debrid volta a false).
     bool debrid = false;
     std::string debridId;        // id do torrent no Real-Debrid, depois de enviado
+    bool viaDebrid = false;      // download direto que veio do Real-Debrid (etapa 2: do servidor para o PC)
     int errorCode = 0;       // DownloadError salvo como número
     unsigned long errorDetail = 0;
 };

@@ -57,6 +57,7 @@ private:
     void drawCell(NMLVCUSTOMDRAW* draw);
     void drawName(HDC dc, const RECT& cell, const app::DownloadItem& item);
     void drawProgress(HDC dc, const RECT& cell, const app::DownloadItem& item);
+    void drawStatus(HDC dc, const RECT& cell, const app::DownloadItem& item);
     LRESULT drawHeader(NMCUSTOMDRAW* draw);
     void fitLastColumn();
     int iconFor(const app::DownloadItem& item);
@@ -72,6 +73,7 @@ private:
     UINT dpi_ = 96;
     HFONT font_ = nullptr;
     HFONT headerFont_ = nullptr;
+    HFONT pillFont_ = nullptr;  // etiqueta da etapa do Real-Debrid
     HIMAGELIST systemIcons_ = nullptr;
     std::map<std::wstring, int> iconByExtension_;
     bool fitting_ = false;

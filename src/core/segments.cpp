@@ -5,7 +5,12 @@
 namespace dm {
 
 SegmentPlanner::SegmentPlanner(int64_t totalSize, int64_t minSplitSize)
-    : total_(totalSize), minSplit_(std::max<int64_t>(minSplitSize, 1)) {}
+    : total_(totalSize), baseMinSplit_(std::max<int64_t>(minSplitSize, 1)), minSplit_(baseMinSplit_) {}
+
+void SegmentPlanner::setMinSplit(int64_t bytes) {
+    std::lock_guard lock(mutex_);
+    minSplit_ = std::max(bytes, baseMinSplit_);
+}
 
 void SegmentPlanner::restore(std::vector<Segment> segments) {
     std::lock_guard lock(mutex_);

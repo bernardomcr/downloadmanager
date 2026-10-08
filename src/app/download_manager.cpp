@@ -17,7 +17,7 @@
 namespace app {
 namespace {
 
-constexpr int kSaveEveryTicks = 10;  // com o timer de 500 ms: salva o progresso a cada 5 s
+constexpr auto kSaveInterval = std::chrono::seconds(5);  // progresso salvo no disco
 
 // Cabeçalhos guardados como linhas "Nome: valor", criptografadas para o usuário atual.
 std::string protectHeaders(const std::vector<std::pair<std::string, std::string>>& headers) {
@@ -180,7 +180,7 @@ void DownloadManager::save() {
     records.reserve(items_.size());
     for (const auto& item : items_) records.push_back(item->record);
     dm::writeTextFileAtomically(listPath_, dm::serializeDownloadList(records));
-    ticksSinceSave_ = 0;
+    lastSave_ = std::chrono::steady_clock::now();
 }
 
 uint64_t DownloadManager::add(const std::string& url, const std::wstring& directory, const std::wstring& fileName,
@@ -265,6 +265,7 @@ void DownloadManager::finishDebrid(DownloadItem& item, const std::vector<dm::Deb
     const dm::DownloadRecord base = record;
     auto makeDirect = [&](dm::DownloadRecord& target, const dm::DebridLink& link) {
         target.debrid = false;
+        target.viaDebrid = true;
         target.debridId.clear();
         target.url = link.download;
         target.fileName = dm::sanitizeFileName(link.fileName);
@@ -453,7 +454,7 @@ bool DownloadManager::tick() {
     }
     if (collectOrganized()) changed = true;
     if (advanceQueue()) changed = true;
-    if (changed || ++ticksSinceSave_ >= kSaveEveryTicks) save();
+    if (changed || std::chrono::steady_clock::now() - lastSave_ >= kSaveInterval) save();
     return changed;
 }
 
