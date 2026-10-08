@@ -37,6 +37,16 @@ Vídeos (yt-dlp): `dm-cli --video <link> [pasta] [--qualidade best|1080|720|mp3|
 
 Ctrl+C pausa e salva o progresso; rodar o mesmo comando de novo continua de onde parou (também depois de travamento ou reinício do PC).
 
+## Claude Code: mod "terminal amigo"
+
+`claude-mods/terminal-amigo` deixa o Claude Code no terminal (ou no app desktop, aba Code) mais fácil de usar neste projeto: acima da caixa de mensagem aparecem botões para os pedidos mais comuns (puxar novidades, compilar e abrir o app, enviar pro GitHub, publicar versão) e, enquanto o Claude trabalha, um jogo da cobrinha.
+
+Ao abrir esta pasta no Claude Code e confiar nela, ele oferece instalar o mod. Ou instale à mão, na caixa de mensagem do Claude Code:
+
+```
+/plugin install terminal-amigo --marketplace bernardomcr/downloadmanager
+```
+
 ## Compilar
 
 Requisitos: Visual Studio 2022 ou mais novo (C++), CMake 3.21+.

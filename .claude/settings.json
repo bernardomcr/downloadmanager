@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "downloadmanager": {
+      "source": { "source": "github", "repo": "bernardomcr/downloadmanager" }
+    }
+  },
+  "enabledPlugins": {
+    "terminal-amigo@downloadmanager": true
+  }
+}

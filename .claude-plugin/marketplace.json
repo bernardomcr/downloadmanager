@@ -1,0 +1,7 @@
+{
+  "name": "downloadmanager",
+  "owner": { "name": "bernardomcr" },
+  "plugins": [
+    { "name": "terminal-amigo", "source": "./claude-mods/terminal-amigo", "description": "Botões do dia a dia e a cobrinha enquanto o Claude trabalha" }
+  ]
+}
