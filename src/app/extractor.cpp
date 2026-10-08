@@ -6,6 +6,7 @@
 
 #include <cwctype>
 
+#include "core/archive.h"
 #include "core/command_line.h"
 #include "engine/process.h"
 #include "util/file_io.h"
@@ -39,9 +40,18 @@ std::wstring knownFolder(REFKNOWNFOLDERID id) {
 }
 
 Extractor nanaZip() {
-    // Instalado pela Microsoft Store: o atalho de linha de comando fica em WindowsApps.
-    const std::wstring alias = dm::joinPath(knownFolder(FOLDERID_LocalAppData), L"Microsoft\\WindowsApps\\NanaZipG.exe");
-    if (dm::fileExists(alias)) return {Extractor::Kind::SevenZip, alias, L"NanaZip"};
+    // Instalado pela Microsoft Store: os atalhos de linha de comando ficam em WindowsApps.
+    const std::wstring apps = dm::joinPath(knownFolder(FOLDERID_LocalAppData), L"Microsoft\\WindowsApps");
+    const std::wstring gui = dm::joinPath(apps, L"NanaZipG.exe");
+    const std::wstring console = dm::joinPath(apps, L"NanaZipC.exe");
+    if (dm::fileExists(gui) && dm::fileExists(console)) return {Extractor::Kind::SevenZip, gui, console, L"NanaZip"};
+    return {};
+}
+
+Extractor sevenZipIn(const std::wstring& folder) {
+    const std::wstring gui = dm::joinPath(folder, L"7zG.exe");
+    const std::wstring console = dm::joinPath(folder, L"7z.exe");
+    if (dm::fileExists(gui) && dm::fileExists(console)) return {Extractor::Kind::SevenZip, gui, console, L"7-Zip"};
     return {};
 }
 
@@ -49,24 +59,30 @@ Extractor sevenZip() {
     std::wstring folder = registryString(HKEY_LOCAL_MACHINE, L"SOFTWARE\\7-Zip", L"Path");
     if (folder.empty()) folder = registryString(HKEY_CURRENT_USER, L"SOFTWARE\\7-Zip", L"Path");
     if (folder.empty()) folder = dm::joinPath(knownFolder(FOLDERID_ProgramFiles), L"7-Zip");
-    const std::wstring exe = dm::joinPath(folder, L"7zG.exe");
-    if (dm::fileExists(exe)) return {Extractor::Kind::SevenZip, exe, L"7-Zip"};
-    return {};
+    return sevenZipIn(folder);
+}
+
+Extractor winRarAt(const std::wstring& exe) {
+    if (!dm::fileExists(exe)) return {};
+    const std::wstring folder = dm::directoryOf(exe);
+    std::wstring console = dm::joinPath(folder, L"Rar.exe");
+    if (!dm::fileExists(console)) console = dm::joinPath(folder, L"UnRAR.exe");
+    if (!dm::fileExists(console)) return {};
+    return {Extractor::Kind::WinRar, exe, console, L"WinRAR"};
 }
 
 Extractor winRar() {
     std::wstring exe = registryString(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WinRAR", L"exe64");
     if (exe.empty()) exe = registryString(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WinRAR", L"exe32");
     if (exe.empty()) exe = dm::joinPath(knownFolder(FOLDERID_ProgramFiles), L"WinRAR\\WinRAR.exe");
-    if (dm::fileExists(exe)) return {Extractor::Kind::WinRar, exe, L"WinRAR"};
-    return {};
+    return winRarAt(exe);
 }
 
 Extractor tar() {
     wchar_t system[MAX_PATH];
     const UINT length = GetSystemDirectoryW(system, MAX_PATH);
     const std::wstring exe = dm::joinPath(std::wstring(system, length), L"tar.exe");
-    if (dm::fileExists(exe)) return {Extractor::Kind::Tar, exe, L"tar"};
+    if (dm::fileExists(exe)) return {Extractor::Kind::Tar, exe, exe, L"tar"};
     return {};
 }
 
@@ -81,13 +97,12 @@ Extractor associated(const std::wstring& extension) {
     const std::wstring path = lower(exe);
     if (path.find(L"nanazip") != std::wstring::npos) return nanaZip();
     if (path.find(L"7z") != std::wstring::npos) {
-        const std::wstring gui = dm::joinPath(dm::directoryOf(exe), L"7zG.exe");
-        if (dm::fileExists(gui)) return {Extractor::Kind::SevenZip, gui, L"7-Zip"};
-        return sevenZip();
+        Extractor found = sevenZipIn(dm::directoryOf(exe));
+        return found.kind != Extractor::Kind::None ? found : sevenZip();
     }
     if (path.find(L"winrar") != std::wstring::npos) {
-        if (dm::fileExists(exe)) return {Extractor::Kind::WinRar, exe, L"WinRAR"};
-        return winRar();
+        Extractor found = winRarAt(exe);
+        return found.kind != Extractor::Kind::None ? found : winRar();
     }
     return {};
 }
@@ -109,6 +124,72 @@ int runVisible(const std::string& commandLine) {
     return static_cast<int>(code);
 }
 
+// Nomes no primeiro nível do compactado; vazio se não conseguir listar.
+std::vector<std::string> listTopLevel(const Extractor& extractor, const std::wstring& archive) {
+    const std::string lister = dm::toUtf8(extractor.lister);
+    const std::string source = dm::toUtf8(archive);
+    std::string output;
+    int code = -1;
+    switch (extractor.kind) {
+        case Extractor::Kind::SevenZip:
+            // -sccUTF-8: nomes com acento chegam certos; -p-: não para pedindo senha.
+            code = dm::runAndCapture(dm::buildCommandLine(lister, {"l", "-slt", "-sccUTF-8", "-p-", source}), output);
+            if (code != 0) return {};
+            return dm::topLevelNames(dm::parseArchiveListing(output, true));
+        case Extractor::Kind::WinRar:
+            code = dm::runAndCapture(dm::buildCommandLine(lister, {"lb", "-scfl", "-p-", source}), output);
+            if (code != 0) return {};
+            return dm::topLevelNames(dm::parseArchiveListing(output, false));
+        case Extractor::Kind::Tar:
+            code = dm::runAndCapture(dm::buildCommandLine(lister, {"-tf", source}), output);
+            if (code != 0) return {};
+            return dm::topLevelNames(dm::parseArchiveListing(output, false));
+        default: return {};
+    }
+}
+
+bool extractTo(const Extractor& extractor, const std::wstring& archive, const std::wstring& destination) {
+    if (SHCreateDirectoryExW(nullptr, destination.c_str(), nullptr) != ERROR_SUCCESS &&
+        GetLastError() != ERROR_ALREADY_EXISTS && !dm::fileExists(destination)) {
+        return false;
+    }
+    const std::string exe = dm::toUtf8(extractor.exe);
+    const std::string source = dm::toUtf8(archive);
+    const std::string target = dm::toUtf8(destination);
+    int code = -1;
+    switch (extractor.kind) {
+        case Extractor::Kind::SevenZip:
+            // 7zG/NanaZipG: janela de progresso (e de senha, se precisar). -aos: nunca sobrescreve.
+            code = runVisible(dm::buildCommandLine(exe, {"x", source, "-o" + target, "-aos"}));
+            if (code == 1) code = 0;  // só avisos
+            break;
+        case Extractor::Kind::WinRar:
+            // -o-: nunca sobrescreve. O destino do WinRAR termina com barra.
+            code = runVisible(dm::buildCommandLine(exe, {"x", "-o-", source, target + "\\"}));
+            if (code == 1) code = 0;
+            break;
+        case Extractor::Kind::Tar: {
+            std::string output;
+            code = dm::runAndCapture(dm::buildCommandLine(exe, {"-xkf", source, "-C", target}), output);
+            break;
+        }
+        default: break;
+    }
+    return code == 0;
+}
+
+std::wstring withoutArchiveExtension(const std::wstring& name) {
+    std::wstring stem = name;
+    // "fotos.tar.gz" -> "fotos"
+    for (int i = 0; i < 2; ++i) {
+        const size_t dot = stem.find_last_of(L'.');
+        if (dot == std::wstring::npos || dot == 0) break;
+        if (i == 1 && lower(stem.substr(dot + 1)) != L"tar") break;
+        stem = stem.substr(0, dot);
+    }
+    return stem;
+}
+
 }  // namespace
 
 Extractor findExtractor(const std::wstring& extension) {
@@ -118,40 +199,34 @@ Extractor findExtractor(const std::wstring& extension) {
     return {};
 }
 
-bool extractArchive(const std::wstring& archive, const std::wstring& destination) {
+Extractor findExtractorFor(const std::wstring& archive) {
     const std::wstring name = dm::fileNameOf(archive);
     const size_t dot = name.find_last_of(L'.');
-    const Extractor extractor = findExtractor(dot == std::wstring::npos ? L"" : name.substr(dot + 1));
-    if (extractor.kind == Extractor::Kind::None) return false;
-    if (SHCreateDirectoryExW(nullptr, destination.c_str(), nullptr) != ERROR_SUCCESS &&
-        GetLastError() != ERROR_ALREADY_EXISTS && !dm::fileExists(destination)) {
-        return false;
-    }
+    return findExtractor(dot == std::wstring::npos ? L"" : name.substr(dot + 1));
+}
 
-    const std::string exe = dm::toUtf8(extractor.exe);
-    const std::string source = dm::toUtf8(archive);
-    const std::string target = dm::toUtf8(destination);
-    int code = -1;
-    switch (extractor.kind) {
-        case Extractor::Kind::SevenZip:
-            // 7zG/NanaZipG: janela de progresso (e de senha, se precisar). Código 1 = só avisos.
-            code = runVisible(dm::buildCommandLine(exe, {"x", source, "-o" + target, "-y"}));
-            if (code == 1) code = 0;
-            break;
-        case Extractor::Kind::WinRar:
-            // O destino do WinRAR termina com barra. Código 1 = só avisos.
-            code = runVisible(dm::buildCommandLine(exe, {"x", "-y", source, target + "\\"}));
-            if (code == 1) code = 0;
-            break;
-        case Extractor::Kind::Tar: {
-            std::string output;
-            code = dm::runAndCapture(dm::buildCommandLine(exe, {"-xf", source, "-C", target}), output);
-            break;
+ExtractResult smartExtract(const std::wstring& archive) {
+    ExtractResult result;
+    const Extractor extractor = findExtractorFor(archive);
+    if (extractor.kind == Extractor::Kind::None || !dm::fileExists(archive)) return result;
+    const std::wstring folder = dm::directoryOf(archive);
+
+    // Um único item na raiz (e nada com esse nome ao lado): extrai ali mesmo, sem pasta dentro de pasta.
+    const std::vector<std::string> top = listTopLevel(extractor, archive);
+    if (top.size() == 1) {
+        const std::wstring single = dm::joinPath(folder, dm::toWide(top.front()));
+        if (!dm::fileExists(single)) {
+            result.ok = extractTo(extractor, archive, folder);
+            result.path = single;
+            return result;
         }
-        default: break;
     }
-    if (code != 0) RemoveDirectoryW(destination.c_str());  // só some se ficou vazia; o compactado é mantido
-    return code == 0;
+    // Vários itens (ou não deu para listar): pasta nova com o nome do arquivo.
+    const std::wstring destination = dm::uniquePath(folder, withoutArchiveExtension(dm::fileNameOf(archive)));
+    result.ok = extractTo(extractor, archive, destination);
+    if (!result.ok) RemoveDirectoryW(destination.c_str());  // só some se ficou vazia; o compactado é mantido
+    result.path = destination;
+    return result;
 }
 
 }  // namespace app

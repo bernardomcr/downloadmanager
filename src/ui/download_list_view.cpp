@@ -9,7 +9,9 @@
 
 #include "app/system.h"
 #include "core/format.h"
+#include "core/archive.h"
 #include "core/http_headers.h"
+#include "core/rules.h"
 #include "i18n/errors.h"
 #include "ui/dialogs.h"
 #include "ui/theme.h"
@@ -40,6 +42,7 @@ enum Command {
     kRemove,
     kRemoveFromList,
     kDeleteFile,
+    kExtract,
 };
 
 std::wstring displayName(const dm::DownloadRecord& record) {
@@ -350,7 +353,7 @@ std::wstring DownloadListView::cellText(const app::DownloadItem& item, int colum
         case 3: {
             if (!item.running() || item.live.status != dm::DownloadStatus::Downloading) return {};
             if (item.speed() <= 0) return {};
-            return dm::toWide(dm::formatSpeed(item.speed(), i18n::decimalSeparator()));
+            return i18n::speedText(item.speed());
         }
         case 4:
             if (item.live.remote != dm::RemoteStage::None) return {};
@@ -586,6 +589,12 @@ bool DownloadListView::handleContextMenu(HWND source, POINT point) {
     } else {
         add(kOpen, Str::MenuOpen, single);
         add(kOpenFolder, Str::MenuOpenFolder, single);
+        if (single) {
+            if (const app::DownloadItem* item = manager_->find(ids.front());
+                item && dm::isArchiveExtension(dm::fileExtension(item->record.filePath))) {
+                add(kExtract, Str::MenuExtract);
+            }
+        }
         add(kCopyUrl, Str::MenuCopyUrl);
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         add(kRemoveFromList, Str::MenuRemoveFromList);
@@ -659,6 +668,9 @@ void DownloadListView::runCommand(int command, const std::vector<uint64_t>& ids)
             if (const app::DownloadItem* item = manager_->find(ids.front())) {
                 app::openFile(dm::toWide(item->record.filePath));
             }
+            return;
+        case kExtract:
+            if (onExtract) onExtract(ids.front());
             return;
         case kOpenFolder:
             if (const app::DownloadItem* item = manager_->find(ids.front())) {

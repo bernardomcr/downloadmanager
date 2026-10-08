@@ -42,17 +42,19 @@ std::string readFile(const std::wstring& path) {
     return text;
 }
 
-// Subpasta onde o navegador deve salvar um download que ele mesmo vai fazer (regras do app).
+// Subpasta onde o navegador deve salvar um download que ele mesmo vai fazer: a pasta "Navegador"
+// (Configurações) ou, com ela desligada, a pasta da regra.
 std::string routeFolder(const dm::JsonValue& message) {
     const std::wstring directory = dataDirectory();
     if (directory.empty()) return {};
     const dm::Settings settings = dm::parseSettings(readFile(directory + L"\\settings.ini"));
-    if (!settings.adoptBrowserDownloads || !settings.rulesEnabled) return {};
-    const std::string rulesText = readFile(directory + L"\\rules.ini");
     bool portuguese = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_PORTUGUESE;
     if (settings.language != dm::LanguageSetting::Automatic) {
         portuguese = settings.language == dm::LanguageSetting::Portuguese;
     }
+    if (settings.browserFolder) return portuguese ? "Navegador" : "Browser";  // mesmo nome que o app cria
+    if (!settings.adoptBrowserDownloads || !settings.rulesEnabled) return {};
+    const std::string rulesText = readFile(directory + L"\\rules.ini");
     const std::vector<dm::Rule> rules = rulesText.empty() ? dm::defaultRules(portuguese) : dm::parseRules(rulesText);
     dm::DownloadFacts facts;
     facts.url = message.string("url");

@@ -3,6 +3,9 @@
 #include <windows.h>
 
 #include <array>
+#include <string>
+
+#include "core/format.h"
 
 namespace i18n {
 namespace {
@@ -224,6 +227,22 @@ constexpr Table kPortuguese = {
     L"%d baixando",
     L"%d na fila",
     L"Nada baixando",
+    L"Mostrar a velocidade em",
+    L"MB/s (megabytes por segundo)",
+    L"Mb/s (megabits, como a operadora anuncia)",
+    L"Abrir uma janela quando um download terminar",
+    L"Salvar o que o navegador baixar na pasta “Navegador”",
+    L"Navegador",
+    L"Download concluído",
+    L"Abrir",
+    L"Abrir pasta",
+    L"Extrair",
+    L"Fechar",
+    L"Extraindo com o %ls…",
+    L"Extraído em %ls",
+    L"Não foi possível extrair (arquivo com senha, corrompido ou incompleto?).",
+    L"Nenhum programa de extração encontrado (instale o NanaZip, 7-Zip ou WinRAR).",
+    L"Extrair",
 };
 
 constexpr Table kEnglish = {
@@ -441,6 +460,22 @@ constexpr Table kEnglish = {
     L"%d downloading",
     L"%d queued",
     L"Nothing downloading",
+    L"Show speed in",
+    L"MB/s (megabytes per second)",
+    L"Mb/s (megabits, as ISPs advertise)",
+    L"Open a window when a download finishes",
+    L"Save what the browser downloads in the “Browser” folder",
+    L"Browser",
+    L"Download complete",
+    L"Open",
+    L"Open folder",
+    L"Extract",
+    L"Close",
+    L"Extracting with %ls…",
+    L"Extracted to %ls",
+    L"Could not extract (password-protected, corrupt or incomplete archive?).",
+    L"No extraction program found (install NanaZip, 7-Zip or WinRAR).",
+    L"Extract",
 };
 
 // Falha na compilação se alguma tradução ficou faltando.
@@ -477,6 +512,19 @@ const wchar_t* tr(Str id) {
 
 char decimalSeparator() {
     return g_language == Language::Portuguese ? ',' : '.';
+}
+
+namespace {
+bool g_speedInBits = false;
+}  // namespace
+
+void setSpeedInBits(bool bits) {
+    g_speedInBits = bits;
+}
+
+std::wstring speedText(double bytesPerSecond) {
+    const std::string text = dm::formatSpeed(bytesPerSecond, decimalSeparator(), g_speedInBits);
+    return std::wstring(text.begin(), text.end());  // só ASCII
 }
 
 }  // namespace i18n

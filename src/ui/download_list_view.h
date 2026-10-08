@@ -38,6 +38,8 @@ public:
 
     // Chamado depois de uma ação que muda a lista (pausar, remover...), para atualizar as duas abas.
     std::function<void()> onChanged;
+    // "Extrair" na aba Concluídos (o extrair inteligente fica com a janela de concluído).
+    std::function<void(uint64_t id)> onExtract;
 
 private:
     struct Column {

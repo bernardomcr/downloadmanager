@@ -13,6 +13,14 @@
   },
   "permissions": ["downloads", "nativeMessaging", "cookies", "contextMenus", "storage", "webRequest"],
   "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["magnet.js"],
+      "all_frames": true,
+      "run_at": "document_start"
+    }
+  ],
   "background": {
     "service_worker": "background.js",
     "scripts": ["lib.js", "background.js"]

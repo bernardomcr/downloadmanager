@@ -11,6 +11,7 @@
 
 #include "app/browser_integration.h"
 #include "app/debrid_account.h"
+#include "app/firefox_prefs.h"
 #include "core/debrid.h"
 #include "i18n/errors.h"
 #include "util/secure.h"
@@ -135,6 +136,7 @@ bool MainWindow::preTranslate(MSG& message) {
             return true;
         }
     }
+    if (completeWindowMessage(message)) return true;
     HWND page = currentPage_ == kSettings ? settingsPage_.handle() : currentPage_ == kRules ? rulesPage_.handle() : nullptr;
     return page && IsChild(page, message.hwnd) && IsDialogMessageW(page, &message);
 }
@@ -165,7 +167,9 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             applyDpi(dpi_);
             manager_->onCompleted = [this](const app::DownloadItem& item) {
                 lastCompletedId_ = item.record.id;
-                if (settings_.notifyOnComplete) {
+                if (settings_.showCompleteWindow) {
+                    showCompleteWindow(item.record.id, completedPathLookup());
+                } else if (settings_.notifyOnComplete) {
                     tray_.showNotification(tr(Str::NotifyCompleted),
                                            dm::fileNameOf(dm::toWide(item.record.filePath)));
                 }
@@ -182,6 +186,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             };
             manager_->load();
             DragAcceptFiles(hwnd_, TRUE);  // arrastar .torrent para a janela
+            applyBrowserFolder(true);
             if (!settings_.realDebridToken.empty()) {
                 if (const auto token = dm::unprotectForCurrentUser(settings_.realDebridToken)) {
                     checkDebridAccount(*token, false);
@@ -362,6 +367,7 @@ LRESULT MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
 void MainWindow::loadSettings() {
     if (const auto text = dm::readTextFile(settingsPath_)) settings_ = dm::parseSettings(*text);
+    i18n::setSpeedInBits(settings_.speedInBits);
     // Mantém o registro em dia (por exemplo, se o .exe mudou de pasta).
     if (!app::testProfile()) app::setStartWithWindows(settings_.startWithWindows);
 }
@@ -395,10 +401,17 @@ void MainWindow::onSettingsChanged(const dm::Settings& settings) {
     const bool languageChanged = settings.language != settings_.language;
     const bool startupChanged = settings.startWithWindows != settings_.startWithWindows;
     if (settings.whenDone != settings_.whenDone) sawWork_ = !manager_->idle();
+    const bool browserFolderChanged = settings.browserFolder != settings_.browserFolder ||
+                                      settings.downloadFolder != settings_.downloadFolder;
+    // O token do Real-Debrid é cuidado pela janela (Conectar/Desconectar); a cópia da página pode ser antiga.
+    const std::string debridToken = settings_.realDebridToken;
     settings_ = settings;
+    settings_.realDebridToken = debridToken;
     saveSettings();
     applyQueueSettings();
     applyRules();  // a pasta padrão pode ter mudado
+    i18n::setSpeedInBits(settings_.speedInBits);
+    if (browserFolderChanged) applyBrowserFolder();
     if (startupChanged && !app::testProfile()) app::setStartWithWindows(settings_.startWithWindows);
     if (languageChanged) {
         applyLanguage();
@@ -465,6 +478,7 @@ void MainWindow::createControls() {
     pages_[kCompleted] = completedList_.create(hwnd_, DownloadListView::Mode::Completed, *manager_);
     downloadsList_.onChanged = [this] { refreshLists(); };
     completedList_.onChanged = [this] { refreshLists(); };
+    completedList_.onExtract = [this](uint64_t id) { showCompleteWindow(id, completedPathLookup(), true); };
 
     rulesPage_.onChanged = [this](const std::vector<dm::Rule>& rules, bool enabled) {
         rules_ = rules;
@@ -600,7 +614,7 @@ void MainWindow::updateFooter() {
     }
     if (status.empty()) status = tr(Str::FooterIdle);
     const std::wstring speedText =
-        speed > 0 ? L"↓ " + dm::toWide(dm::formatSpeed(speed, i18n::decimalSeparator())) : L"";
+        speed > 0 ? L"↓ " + i18n::speedText(speed) : L"";
     if (status == footerText_ && speedText == footerSpeed_) return;
     footerText_ = status;
     footerSpeed_ = speedText;
@@ -771,6 +785,24 @@ uint64_t MainWindow::addTorrent(std::wstring input, const std::wstring& folder, 
     manager_->setOrganize(id, organize);
     refreshLists();
     return id;
+}
+
+PathLookup MainWindow::completedPathLookup() {
+    return [this](uint64_t id) -> std::wstring {
+        const app::DownloadItem* item = manager_ ? manager_->find(id) : nullptr;
+        return item ? dm::toWide(item->record.filePath) : std::wstring();
+    };
+}
+
+void MainWindow::applyBrowserFolder(bool startup) {
+    if (app::testProfile()) return;  // nunca mexe no Firefox de verdade num teste
+    if (settings_.browserFolder) {
+        const std::wstring folder = dm::joinPath(downloadFolder(), tr(Str::BrowserFolderName));
+        SHCreateDirectoryExW(nullptr, folder.c_str(), nullptr);
+        app::setFirefoxDownloadFolder(folder);
+    } else if (!startup) {
+        app::setFirefoxDownloadFolder(L"");  // volta para a pasta Downloads padrão
+    }
 }
 
 void MainWindow::applyDebridToken() {

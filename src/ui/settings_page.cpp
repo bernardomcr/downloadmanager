@@ -38,6 +38,9 @@ void SettingsPage::applyTexts() {
     SetDlgItemTextW(dialog_, IDC_SET_KEEP_AWAKE, tr(Str::SettingsKeepAwake));
     SetDlgItemTextW(dialog_, IDC_SET_BROWSER_ASK, tr(Str::SettingsBrowserAsk));
     SetDlgItemTextW(dialog_, IDC_SET_ADOPT, tr(Str::SettingsAdopt));
+    SetDlgItemTextW(dialog_, IDC_SET_BROWSER_FOLDER, tr(Str::SettingsBrowserFolder));
+    SetDlgItemTextW(dialog_, IDC_SET_COMPLETE_WINDOW, tr(Str::SettingsCompleteWindow));
+    SetDlgItemTextW(dialog_, IDC_SET_SPEED_UNIT_LABEL, tr(Str::SettingsSpeedUnit));
     SetDlgItemTextW(dialog_, IDC_SET_AUTO_UPDATE, tr(Str::SettingsAutoUpdate));
     SetDlgItemTextW(dialog_, IDC_SET_UPDATE, tr(updateReady_ ? Str::UpdateNow : Str::UpdateCheckNow));
     SetDlgItemTextW(dialog_, IDC_SET_MAX_DOWNLOADS_LABEL, tr(Str::SettingsMaxDownloads));
@@ -104,7 +107,15 @@ void SettingsPage::fillControls() {
     CheckDlgButton(dialog_, IDC_SET_KEEP_AWAKE, settings_.keepAwake ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog_, IDC_SET_BROWSER_ASK, settings_.askForBrowserDownloads ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog_, IDC_SET_ADOPT, settings_.adoptBrowserDownloads ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(dialog_, IDC_SET_BROWSER_FOLDER, settings_.browserFolder ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(dialog_, IDC_SET_COMPLETE_WINDOW, settings_.showCompleteWindow ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(dialog_, IDC_SET_AUTO_UPDATE, settings_.autoUpdate ? BST_CHECKED : BST_UNCHECKED);
+    HWND speedUnit = GetDlgItem(dialog_, IDC_SET_SPEED_UNIT);
+    SendMessageW(speedUnit, CB_RESETCONTENT, 0, 0);
+    for (Str option : {Str::SpeedUnitBytes, Str::SpeedUnitBits}) {
+        SendMessageW(speedUnit, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(tr(option)));
+    }
+    SendMessageW(speedUnit, CB_SETCURSEL, settings_.speedInBits ? 1 : 0, 0);
 
     SendDlgItemMessageW(dialog_, IDC_SET_MAX_DOWNLOADS_SPIN, UDM_SETRANGE32, 1, 10);
     SendDlgItemMessageW(dialog_, IDC_SET_MAX_DOWNLOADS_SPIN, UDM_SETPOS32, 0, settings_.maxDownloads);
@@ -310,6 +321,20 @@ INT_PTR SettingsPage::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
         case IDC_SET_AUTO_UPDATE:
             settings_.autoUpdate = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
             notify();
+            return TRUE;
+        case IDC_SET_BROWSER_FOLDER:
+            settings_.browserFolder = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
+            notify();
+            return TRUE;
+        case IDC_SET_COMPLETE_WINDOW:
+            settings_.showCompleteWindow = IsDlgButtonChecked(dialog_, id) == BST_CHECKED;
+            notify();
+            return TRUE;
+        case IDC_SET_SPEED_UNIT:
+            if (code == CBN_SELCHANGE) {
+                settings_.speedInBits = SendDlgItemMessageW(dialog_, IDC_SET_SPEED_UNIT, CB_GETCURSEL, 0, 0) == 1;
+                notify();
+            }
             return TRUE;
         case IDC_SET_UPDATE:
             if (onUpdateButton) onUpdateButton();

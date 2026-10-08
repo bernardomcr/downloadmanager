@@ -3,6 +3,8 @@
 // Todo texto visível ao usuário passa por aqui. Para adicionar uma frase:
 // 1) crie o identificador em Str, 2) adicione a tradução nas duas tabelas de strings.cpp, na mesma posição.
 
+#include <string>
+
 namespace i18n {
 
 enum class Language { Portuguese, English };
@@ -222,6 +224,22 @@ enum class Str {
     FooterDownloading,
     FooterQueued,
     FooterIdle,
+    SettingsSpeedUnit,
+    SpeedUnitBytes,
+    SpeedUnitBits,
+    SettingsCompleteWindow,
+    SettingsBrowserFolder,
+    BrowserFolderName,
+    CompleteTitle,
+    CompleteOpen,
+    CompleteOpenFolder,
+    CompleteExtract,
+    CompleteClose,
+    CompleteExtracting,
+    CompleteExtracted,
+    CompleteExtractFailed,
+    CompleteNoExtractor,
+    MenuExtract,
     Count  // manter por último
 };
 
@@ -231,5 +249,9 @@ Language systemLanguage();
 const wchar_t* tr(Str id);
 // Separador decimal do idioma atual (',' ou '.').
 char decimalSeparator();
+
+// Velocidade na unidade escolhida nas Configurações (MB/s ou Mb/s).
+void setSpeedInBits(bool bits);
+std::wstring speedText(double bytesPerSecond);
 
 }  // namespace i18n

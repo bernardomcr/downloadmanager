@@ -90,14 +90,21 @@ jobs:
           build/Release/dm-cli.exe --extrator zip
           New-Item -ItemType Directory -Force "$base\origem" | Out-Null
           Set-Content "$base\origem\leia.txt" "oi"
-          Compress-Archive "$base\origem\leia.txt" "$base\pacote.zip"
+          Set-Content "$base\origem\outro.txt" "oi"
+          # Extrair inteligente: vários itens na raiz -> pasta com o nome; um item só -> ao lado do compactado.
+          Compress-Archive "$base\origem\leia.txt", "$base\origem\outro.txt" "$base\pacote.zip"
+          Compress-Archive "$base\origem\leia.txt" "$base\sozinho.zip"
+          Rename-Item "$base\origem\leia.txt" "unico.txt"
+          Compress-Archive "$base\origem\unico.txt" "$base\unico.zip"
           Set-Content "$base\relatorio.pdf" "pdf"
           build/Release/dm-cli.exe --organizar "$base\relatorio.pdf" $base
           build/Release/dm-cli.exe --organizar "$base\pacote.zip" $base --extrair
+          build/Release/dm-cli.exe --organizar "$base\unico.zip" $base --extrair
           Get-ChildItem -Recurse $base | Select-Object -ExpandProperty FullName
           $ok = (Test-Path "$base\Documents\relatorio.pdf") -or (Test-Path "$base\Documentos\relatorio.pdf")
-          $zip = Get-ChildItem -Recurse -Filter leia.txt $base | Where-Object { $_.Directory.Name -eq "pacote" }
-          if (-not $ok -or -not $zip -or (Get-ChildItem -Recurse -Filter pacote.zip $base)) { exit 1 }
+          $zip = Get-ChildItem -Recurse -Filter outro.txt $base | Where-Object { $_.Directory.Name -eq "pacote" }
+          $single = Get-ChildItem -Recurse -Filter unico.txt $base | Where-Object { $_.Directory.Name -match "^Compact|^Compressed" }
+          if (-not $ok -or -not $zip -or -not $single -or (Get-ChildItem -Recurse -Filter pacote.zip $base)) { exit 1 }
 
       - name: Instalador (instala e desinstala em silêncio)
         shell: pwsh

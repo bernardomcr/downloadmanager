@@ -7,6 +7,7 @@
 #include <thread>
 #include <vector>
 
+#include "core/archive.h"
 #include "core/base64.h"
 #include "core/browser_request.h"
 #include "core/command_line.h"
@@ -69,6 +70,11 @@ void testFormat() {
     CHECK(dm::formatBytes(1536) == "1,5 KB");
     CHECK(dm::formatBytes(1536, '.') == "1.5 KB");
     CHECK(dm::formatSpeed(3.0 * 1024 * 1024) == "3,0 MB/s");
+    // Em bits, unidades de 1000 (100 MB/s de bytes decimais = 800 Mb/s).
+    CHECK(dm::formatSpeed(100'000'000.0, ',', true) == "800,0 Mb/s");
+    CHECK(dm::formatSpeed(125'000'000.0, '.', true) == "1.0 Gb/s");
+    CHECK(dm::formatSpeed(100.0, ',', true) == "800 b/s");
+    CHECK(dm::formatSpeed(2'000.0, ',', true) == "16,0 Kb/s");
     CHECK(dm::formatDuration(9) == "0:09");
     CHECK(dm::formatDuration(3723) == "1:02:03");
     CHECK(dm::formatDuration(-1).empty());
@@ -622,7 +628,28 @@ void testDebrid() {
     CHECK(!dm::parseDebridLink(R"({"download":"javascript:x"})"));
 }
 
+void testArchive() {
+    CHECK(dm::isArchiveExtension("zip") && dm::isArchiveExtension("rar") && !dm::isArchiveExtension("pdf"));
+
+    // 7z l -slt: o cabeçalho (Path = o próprio arquivo) vem antes de "----------".
+    const std::string slt =
+        "Path = C:\\x\\pacote.zip\r\nType = zip\r\n\r\n----------\r\nPath = Jogo\r\nFolder = +\r\n\r\n"
+        "Path = Jogo\\setup.exe\r\nSize = 10\r\n\r\nPath = Jogo\\dados\\a.bin\r\n";
+    const auto paths = dm::parseArchiveListing(slt, true);
+    CHECK(paths.size() == 3 && paths[1] == "Jogo\\setup.exe");
+    CHECK(dm::topLevelNames(paths) == std::vector<std::string>{"Jogo"});
+    // Sem cabeçalho (-ba): todas as linhas Path contam.
+    CHECK(dm::parseArchiveListing("Path = a.txt\nPath = b.txt\n", true).size() == 2);
+
+    // tar -tf / rar lb: um caminho por linha.
+    const auto tar = dm::parseArchiveListing("./fotos/\n./fotos/1.jpg\nleia.txt\n", false);
+    CHECK(dm::topLevelNames(tar) == (std::vector<std::string>{"fotos", "leia.txt"}));
+    CHECK(dm::topLevelNames({"/abs/x", "..", "."}) == std::vector<std::string>{"abs"});
+    CHECK(dm::topLevelNames({}).empty());
+}
+
 int main() {
+    testArchive();
     testContentRange();
     testFileNames();
     testFormat();

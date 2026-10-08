@@ -18,6 +18,7 @@ configure_file(src/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/version.h 
 
 # Núcleo portátil (sem Windows): segmentos, cabeçalhos HTTP, estado de retomada, formatação.
 add_library(dm_core STATIC
+    src/core/archive.cpp
     src/core/base64.cpp
     src/core/browser_request.cpp
     src/core/command_line.cpp
@@ -70,6 +71,7 @@ if(WIN32)
         src/app/debrid_account.cpp
         src/app/download_manager.cpp
         src/app/extractor.cpp
+        src/app/firefox_prefs.cpp
         src/app/organizer.cpp
         src/app/system.cpp
         src/app/updater.cpp
@@ -79,6 +81,7 @@ if(WIN32)
 
     add_executable(DownloadManager WIN32
         src/main.cpp
+        src/ui/complete_dialog.cpp
         src/ui/dialogs.cpp
         src/ui/download_list_view.cpp
         src/ui/main_window.cpp

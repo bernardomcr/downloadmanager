@@ -251,6 +251,24 @@ api.contextMenus.onClicked.addListener(async (info) => {
   await sendNative(await buildRequest(url, { referrer: info.pageUrl || "", source: "link" }));
 });
 
+// --- Clique em link magnet (magnet.js): vai direto para o app / Real-Debrid ---
+
+api.runtime.onMessage.addListener((message, sender) => {
+  if (!message || message.type !== "magnet" || !DMLib.isMagnet(message.url)) return;
+  (async () => {
+    const reply = (await isCaptureEnabled())
+      ? await sendNative({ type: "add", token: crypto.randomUUID(), url: message.url, source: "link" })
+      : null;
+    await logEvent(`magnet: ${reply && reply.ok ? "app" : "programa padrão"}`);
+    // App desligado ou fora do ar: o link segue para o programa de torrent, como sem a extensão.
+    if ((!reply || !reply.ok) && sender.tab && sender.tab.id !== undefined) {
+      try {
+        await api.tabs.update(sender.tab.id, { url: message.url });
+      } catch {}
+    }
+  })();
+});
+
 // --- Mídia encontrada nas páginas (para o popup) ---
 
 async function mediaFor(tabId) {

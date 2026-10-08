@@ -9,15 +9,23 @@ namespace app {
 struct Extractor {
     enum class Kind { None, SevenZip, WinRar, Tar };  // SevenZip vale também para o NanaZip (mesma linha de comando)
     Kind kind = Kind::None;
-    std::wstring exe;
-    std::wstring name;  // "NanaZip", "7-Zip", "WinRAR", "tar"
+    std::wstring exe;     // com janela de progresso (NanaZipG, 7zG, WinRAR)
+    std::wstring lister;  // de console, para listar o conteúdo (NanaZipC, 7z, Rar/UnRAR, tar)
+    std::wstring name;    // "NanaZip", "7-Zip", "WinRAR", "tar"
 };
 
 // Para a extensão (sem ponto): primeiro o programa associado a ela no Windows, se for um dos conhecidos;
 // depois NanaZip, 7-Zip e WinRAR instalados; por fim o tar.
 Extractor findExtractor(const std::wstring& extension);
+Extractor findExtractorFor(const std::wstring& archive);
 
-// Extrai `archive` dentro de `destination` (criada se preciso) e espera terminar. true = sucesso.
-bool extractArchive(const std::wstring& archive, const std::wstring& destination);
+struct ExtractResult {
+    bool ok = false;
+    std::wstring path;  // pasta criada, ou o item único extraído ao lado do compactado
+};
+
+// Extrair inteligente (como o "Smart Extraction" do NanaZip): se o compactado tem um único item na raiz,
+// extrai ao lado dele; senão, numa pasta com o nome do arquivo. Nunca sobrescreve nada. Espera terminar.
+ExtractResult smartExtract(const std::wstring& archive);
 
 }  // namespace app

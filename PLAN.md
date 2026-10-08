@@ -133,6 +133,14 @@ Ordem de tentativa, sem o usuário precisar caçar token:
 5. **Extração pelo programa do usuário** ✅ — NanaZip, 7-Zip ou WinRAR (o associado à extensão primeiro), com a janela de progresso deles; `tar` só se não houver nenhum.
 6. **Rede** ✅ — fallback rápido para IPv4 no WinHTTP (a rede do usuário tem IPv6 quebrado; conexões ficavam esperando estourar o tempo).
 
+## Fase 10 (pedidos de 08/10/2026, depois da 0.2.0) ✅
+1. **Janela ao concluir** ✅ — Abrir, Abrir pasta, Extrair (só compactados) e Fechar; no canto da tela, sem roubar o foco, empilhando. Pode ser desligada nas Configurações (aí volta o aviso da bandeja). "Extrair" também no menu da aba Concluídos.
+2. **Extrair inteligente no lugar da extração automática** ✅ — como o "Smart Extraction" do NanaZip: um item na raiz vai ao lado do compactado, vários vão para uma pasta com o nome; nunca sobrescreve. Feito pelo NanaZip/7-Zip/WinRAR do usuário (janela de progresso deles). A opção "extrair" das regras continua existindo e usa o mesmo método.
+3. **Magnet automático** ✅ — clique em link magnet em qualquer página vai para o app → Real-Debrid → download direto. Sem o app, o link segue para o programa padrão.
+4. **Pasta Navegador** ✅ — o que o navegador baixa sozinho vai para `Downloads\Navegador` (Chrome/Edge pela extensão; Firefox pela preferência do perfil, a partir da próxima abertura). Opção nas Configurações.
+5. **Velocidade** ✅ — 16 conexões adaptativas, User-Agent honesto com segunda tentativa, TCP Fast Open/TLS False Start, IPv4 rápido. Contra servidor que limita por conexão: 15x a velocidade de uma conexão (o que o navegador faz).
+6. **MB/s ou Mb/s** ✅ — nas Configurações.
+
 ## Em aberto
 - Escolher os arquivos de um torrent com vários arquivos; outros serviços de debrid (Torbox).
-- Release com a extensão nova (o `route` do Chrome/Edge e o magnet no clique direito precisam da extensão e do dm-host novos).
+- Registrar o app como opção de "abrir magnet" do Windows (fora do navegador).

@@ -4,33 +4,11 @@
 #include <shlobj.h>
 
 #include "app/extractor.h"
+#include "core/archive.h"
 #include "util/file_io.h"
 #include "util/unicode.h"
 
 namespace app {
-namespace {
-
-bool isArchive(const std::string& extension) {
-    for (const char* known : {"zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst"}) {
-        if (extension == known) return true;
-    }
-    return false;
-}
-
-std::wstring withoutExtension(const std::wstring& name) {
-    std::wstring stem = name;
-    // "fotos.tar.gz" -> "fotos"
-    for (int i = 0; i < 2; ++i) {
-        const size_t dot = stem.find_last_of(L'.');
-        if (dot == std::wstring::npos || dot == 0) break;
-        const std::wstring extension = stem.substr(dot + 1);
-        if (i == 1 && extension != L"tar") break;
-        stem = stem.substr(0, dot);
-    }
-    return stem;
-}
-
-}  // namespace
 
 Organizer::Organizer() : worker_(&Organizer::run, this) {}
 
@@ -100,13 +78,11 @@ Organizer::Result Organizer::organize(const Job& job) {
         result.path = target;
     }
 
-    if (job.rule.extract && isArchive(dm::fileExtension(dm::toUtf8(target)))) {
-        const std::wstring destination = dm::uniquePath(folder, withoutExtension(dm::fileNameOf(target)));
-        if (extractArchive(target, destination)) {
-            if (job.rule.deleteArchive) {
-                DeleteFileW(target.c_str());
-                result.path = destination;
-            }
+    if (job.rule.extract && dm::isArchiveExtension(dm::fileExtension(dm::toUtf8(target)))) {
+        const ExtractResult extracted = smartExtract(target);
+        if (extracted.ok && job.rule.deleteArchive) {
+            DeleteFileW(target.c_str());
+            result.path = extracted.path;
         }
     }
     return result;

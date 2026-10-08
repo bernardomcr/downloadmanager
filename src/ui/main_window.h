@@ -15,6 +15,7 @@
 #include "core/settings.h"
 #include <shellapi.h>
 
+#include "ui/complete_dialog.h"
 #include "ui/dialogs.h"
 #include "ui/download_list_view.h"
 #include "ui/rules_page.h"
@@ -69,6 +70,10 @@ private:
     void onDropFiles(HDROP drop);
     // Real-Debrid: token para as tarefas e conferência da conta em segundo plano.
     void applyDebridToken();
+    // Caminho atual de um download (para a janela de concluído, que pode ficar aberta enquanto a regra move).
+    PathLookup completedPathLookup();
+    // Pasta "Navegador" dentro da pasta padrão: cria e aponta o Firefox para ela (Chrome/Edge: a extensão).
+    void applyBrowserFolder(bool startup = false);
     void checkDebridAccount(const std::string& token, bool connecting);
     void onDebridChecked(LPARAM result);
     // Fluxo de vídeo (análise + escolhas). Devolve o id do primeiro download criado, 0 se cancelado.
