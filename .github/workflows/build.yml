@@ -82,10 +82,12 @@ jobs:
           & "$env:RUNNER_TEMP\dm-dados\tools\ffmpeg.exe" -version | Select-Object -First 1
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-      - name: Regras (move para a subpasta e extrai com o tar do Windows)
+      - name: Regras (move para a subpasta e extrai com o extrator instalado, 7-Zip no runner)
+        timeout-minutes: 3
         shell: pwsh
         run: |
           $base = "$env:RUNNER_TEMP\dm-regras"
+          build/Release/dm-cli.exe --extrator zip
           New-Item -ItemType Directory -Force "$base\origem" | Out-Null
           Set-Content "$base\origem\leia.txt" "oi"
           Compress-Archive "$base\origem\leia.txt" "$base\pacote.zip"

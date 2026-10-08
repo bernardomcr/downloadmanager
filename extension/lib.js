@@ -13,6 +13,15 @@
     return /^https?:\/\//i.test(url || "");
   }
 
+  // Caminho relativo para o navegador salvar já na subpasta da regra ("Compactados/x.zip"); "" = sem mudança.
+  function routedFileName(suggested, folder) {
+    const name = basename(suggested);
+    if (!name || !folder) return "";
+    const parts = String(folder).split(/[\\/]/).filter(Boolean);
+    if (!parts.length || parts.some((part) => part === "." || part === ".." || /[<>:"|?*]/.test(part))) return "";
+    return `${parts.join("/")}/${name}`;
+  }
+
   // Magnet de torrent (o app manda para o Real-Debrid).
   function isMagnet(url) {
     return /^magnet:\?.*xt=urn:btih:([0-9a-f]{40}|[a-z2-7]{32})(&|$)/i.test(url || "");
@@ -158,7 +167,7 @@
     }
   }
 
-  const DMLib = { isWebUrl, isMagnet, extensionOf, basename, shouldCapture, cookieHeader, classifyMedia, mediaSize, mediaKey, mediaName, formatSize, forwardableHeaders, RecentRequests };
+  const DMLib = { isWebUrl, isMagnet, routedFileName, extensionOf, basename, shouldCapture, cookieHeader, classifyMedia, mediaSize, mediaKey, mediaName, formatSize, forwardableHeaders, RecentRequests };
   root.DMLib = DMLib;
   if (typeof module !== "undefined" && module.exports) module.exports = DMLib;
 })(typeof globalThis !== "undefined" ? globalThis : this);

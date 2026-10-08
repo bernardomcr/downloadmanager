@@ -226,4 +226,26 @@ std::string resolveRuleFolder(const std::string& folder, const std::string& base
     return (last == '\\' || last == '/') ? base + folder : base + "\\" + folder;
 }
 
+std::string browserRouteFolder(const std::vector<Rule>& rules, const DownloadFacts& facts) {
+    const Rule* rule = matchRule(rules, facts);
+    if (!rule) return {};
+    // Só pastas relativas: o navegador só aceita caminhos dentro da pasta de downloads dele.
+    std::string folder = rule->folder;
+    for (char& c : folder) {
+        if (c == '\\') c = '/';
+    }
+    while (!folder.empty() && folder.back() == '/') folder.pop_back();
+    const bool absolute = (folder.size() >= 2 && folder[1] == ':') || (!folder.empty() && folder.front() == '/');
+    if (folder.empty() || absolute) return {};
+    size_t start = 0;
+    while (start <= folder.size()) {
+        size_t end = folder.find('/', start);
+        if (end == std::string::npos) end = folder.size();
+        const std::string part = folder.substr(start, end - start);
+        if (part.empty() || part == "." || part == ".." || part.find_first_of("<>:\"|?*") != std::string::npos) return {};
+        start = end + 1;
+    }
+    return folder;
+}
+
 }  // namespace dm

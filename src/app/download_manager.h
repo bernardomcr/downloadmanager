@@ -74,7 +74,7 @@ public:
     // Sem as ferramentas prontas, vídeos esperam na fila.
     void setVideoTools(VideoTools* tools) { videoTools_ = tools; }
 
-    // Arquivo que o navegador baixou e o app organizou: entra direto em Concluídos.
+    // Arquivo que o navegador baixou sozinho: entra direto em Concluídos, no lugar onde está (não é movido).
     uint64_t addCompleted(const std::string& url, const std::wstring& filePath, int64_t size);
     // Continuar: começa se houver vaga (e o agendador deixar); senão entra na fila.
     void resume(uint64_t id);

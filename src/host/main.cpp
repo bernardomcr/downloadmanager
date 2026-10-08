@@ -14,9 +14,53 @@
 #include "app/ipc.h"
 #include "core/browser_request.h"
 #include "core/json.h"
+#include "core/rules.h"
+#include "core/settings.h"
 #include "version.h"
 
 namespace {
+
+// Mesma pasta de dados do app (%LOCALAPPDATA%\DownloadManager, ou DM_TEST_PROFILE).
+std::wstring dataDirectory() {
+    wchar_t value[MAX_PATH];
+    DWORD length = GetEnvironmentVariableW(L"DM_TEST_PROFILE", value, MAX_PATH);
+    if (length > 0 && length < MAX_PATH) return std::wstring(value, length);
+    length = GetEnvironmentVariableW(L"LOCALAPPDATA", value, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) return {};
+    return std::wstring(value, length) + L"\\DownloadManager";
+}
+
+std::string readFile(const std::wstring& path) {
+    std::string text;
+    FILE* file = nullptr;
+    if (_wfopen_s(&file, path.c_str(), L"rb") == 0 && file) {
+        char buffer[8192];
+        size_t read = 0;
+        while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0) text.append(buffer, read);
+        std::fclose(file);
+    }
+    return text;
+}
+
+// Subpasta onde o navegador deve salvar um download que ele mesmo vai fazer (regras do app).
+std::string routeFolder(const dm::JsonValue& message) {
+    const std::wstring directory = dataDirectory();
+    if (directory.empty()) return {};
+    const dm::Settings settings = dm::parseSettings(readFile(directory + L"\\settings.ini"));
+    if (!settings.adoptBrowserDownloads || !settings.rulesEnabled) return {};
+    const std::string rulesText = readFile(directory + L"\\rules.ini");
+    bool portuguese = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_PORTUGUESE;
+    if (settings.language != dm::LanguageSetting::Automatic) {
+        portuguese = settings.language == dm::LanguageSetting::Portuguese;
+    }
+    const std::vector<dm::Rule> rules = rulesText.empty() ? dm::defaultRules(portuguese) : dm::parseRules(rulesText);
+    dm::DownloadFacts facts;
+    facts.url = message.string("url");
+    facts.fileName = message.string("fileName");
+    if (const auto size = message.number("size"); size && *size > 0) facts.size = static_cast<int64_t>(*size);
+    if (facts.fileName.empty() || facts.fileName.size() > 1024) return {};
+    return dm::browserRouteFolder(rules, facts);
+}
 
 constexpr uint32_t kMaxMessage = 1024 * 1024;
 
@@ -139,6 +183,11 @@ int main() {
             dm::JsonValue::Object object;
             object["ok"] = true;
             object["status"] = askStatus(value->string("token"));
+            reply(dm::JsonValue(std::move(object)));
+        } else if (type == "route") {
+            dm::JsonValue::Object object;
+            object["ok"] = true;
+            object["folder"] = routeFolder(*value);
             reply(dm::JsonValue(std::move(object)));
         } else if (type == "adopt") {
             const auto request = dm::parseAdoptRequest(message);

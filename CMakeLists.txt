@@ -69,12 +69,13 @@ if(WIN32)
         src/app/browser_integration.cpp
         src/app/debrid_account.cpp
         src/app/download_manager.cpp
+        src/app/extractor.cpp
         src/app/organizer.cpp
         src/app/system.cpp
         src/app/updater.cpp
         src/app/video_tools.cpp
     )
-    target_link_libraries(dm_app PUBLIC dm_engine shell32 ole32 uuid powrprof)
+    target_link_libraries(dm_app PUBLIC dm_engine shell32 shlwapi ole32 uuid powrprof advapi32)
 
     add_executable(DownloadManager WIN32
         src/main.cpp

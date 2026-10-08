@@ -295,9 +295,9 @@ uint64_t DownloadManager::addCompleted(const std::string& url, const std::wstrin
     item->record.downloaded = size;
     item->record.addedAt = unixNow();
     item->record.finishedAt = item->record.addedAt;
-    item->record.organize = true;  // o que o navegador baixou sozinho também é organizado
+    // Não é movido: o navegador guarda o caminho e quebraria (no Chrome/Edge já veio na pasta da regra).
+    item->record.organize = false;
     const uint64_t id = item->record.id;
-    organizeIfNeeded(*item);
     items_.push_back(std::move(item));
     save();
     return id;

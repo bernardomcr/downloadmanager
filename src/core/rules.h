@@ -50,6 +50,10 @@ std::vector<Rule> parseRules(const std::string& text);
 // Pasta final: absoluta ("C:\\x", "\\\\servidor\\x") fica como está; relativa vai dentro de `base`.
 std::string resolveRuleFolder(const std::string& folder, const std::string& base);
 
+// Download que o navegador vai salvar sozinho: subpasta (relativa, com "/") onde ele deve gravar o arquivo
+// dentro da pasta de downloads dele, para já nascer organizado. Vazio: sem regra ou pasta absoluta.
+std::string browserRouteFolder(const std::vector<Rule>& rules, const DownloadFacts& facts);
+
 // "zip, .RAR ,7z" -> {"zip", "rar", "7z"}; também serve para sites.
 std::vector<std::string> splitList(const std::string& text);
 std::string joinList(const std::vector<std::string>& items);

@@ -92,3 +92,11 @@ test("reconhece magnets de torrent", () => {
   assert.ok(!lib.isMagnet("https://a.com/x.torrent"));
   assert.ok(!lib.isMagnet(undefined));
 });
+
+test("caminho relativo para o navegador salvar na pasta da regra", () => {
+  assert.strictEqual(lib.routedFileName("projeto.zip", "Compactados"), "Compactados/projeto.zip");
+  assert.strictEqual(lib.routedFileName("C:\\Users\\a\\Downloads\\x.pdf", "Arquivos\\Docs\\"), "Arquivos/Docs/x.pdf");
+  assert.strictEqual(lib.routedFileName("x.pdf", ""), "");
+  assert.strictEqual(lib.routedFileName("x.pdf", "../fora"), "");
+  assert.strictEqual(lib.routedFileName("x.pdf", "C:/fora"), "");
+});

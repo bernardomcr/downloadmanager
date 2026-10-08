@@ -470,6 +470,17 @@ void testRules() {
     CHECK(folderFor({"https://a.com/x", "LEIAME", 10, false}) == "(nenhuma)");
     CHECK(dm::defaultRules(false)[1].folder == "Compressed");
 
+    // Pasta para o navegador já salvar organizado: só relativa e sem "..".
+    CHECK(dm::browserRouteFolder(rules, {"https://claude.ai/x", "projeto.zip", -1, false}) == "Compactados");
+    CHECK(dm::browserRouteFolder(rules, {"https://a.com/x", "LEIAME", -1, false}).empty());
+    auto custom = rules;
+    custom[1].folder = "Arquivos\\Compactados\\";
+    CHECK(dm::browserRouteFolder(custom, {"https://a.com/x", "a.zip", -1, false}) == "Arquivos/Compactados");
+    custom[1].folder = "D:\\Compactados";
+    CHECK(dm::browserRouteFolder(custom, {"https://a.com/x", "a.zip", -1, false}).empty());
+    custom[1].folder = "..\\fora";
+    CHECK(dm::browserRouteFolder(custom, {"https://a.com/x", "a.zip", -1, false}).empty());
+
     dm::Rule site;
     site.name = "Faculdade";
     site.sites = dm::splitList("moodle.ufrj.br");

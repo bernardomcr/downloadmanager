@@ -968,14 +968,9 @@ bool MainWindow::adoptFile(const dm::AdoptRequest& request) {
     if (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) return true;
     const int64_t size = (static_cast<int64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
 
-    const std::wstring folder = downloadFolder();
-    std::wstring target = source;
-    if (_wcsicmp(dm::directoryOf(source).c_str(), folder.c_str()) != 0) {
-        SHCreateDirectoryExW(nullptr, folder.c_str(), nullptr);
-        target = dm::uniquePath(folder, dm::fileNameOf(source));
-        if (!MoveFileExW(source.c_str(), target.c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH)) return false;
-    }
-    manager_->addCompleted(request.url, target, size);
+    // Só lista: mover o arquivo depois de pronto quebra o "Mostrar na pasta" do navegador. No Chrome/Edge
+    // ele já foi salvo na subpasta da regra (a extensão pergunta antes); no Firefox fica onde o navegador pôs.
+    manager_->addCompleted(request.url, source, size);
     refreshLists();
     return true;
 }

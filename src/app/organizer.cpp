@@ -3,8 +3,7 @@
 #include <windows.h>
 #include <shlobj.h>
 
-#include "core/command_line.h"
-#include "engine/process.h"
+#include "app/extractor.h"
 #include "util/file_io.h"
 #include "util/unicode.h"
 
@@ -29,23 +28,6 @@ std::wstring withoutExtension(const std::wstring& name) {
         stem = stem.substr(0, dot);
     }
     return stem;
-}
-
-// tar.exe do Windows 10/11 abre zip, tar.* e, no Windows 11 atual, rar e 7z.
-bool extractArchive(const std::wstring& archive, const std::wstring& destination) {
-    wchar_t system[MAX_PATH];
-    const UINT length = GetSystemDirectoryW(system, MAX_PATH);
-    const std::wstring tar = dm::joinPath(std::wstring(system, length), L"tar.exe");
-    if (!dm::fileExists(tar)) return false;
-    if (SHCreateDirectoryExW(nullptr, destination.c_str(), nullptr) != ERROR_SUCCESS &&
-        GetLastError() != ERROR_ALREADY_EXISTS && !dm::fileExists(destination)) {
-        return false;
-    }
-    std::string output;
-    const int code = dm::runAndCapture(
-        dm::buildCommandLine(dm::toUtf8(tar), {"-xf", dm::toUtf8(archive), "-C", dm::toUtf8(destination)}), output);
-    if (code != 0) RemoveDirectoryW(destination.c_str());  // só some se ficou vazia; o compactado é mantido
-    return code == 0;
 }
 
 }  // namespace

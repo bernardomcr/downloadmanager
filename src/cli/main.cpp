@@ -11,6 +11,7 @@
 #include <cwchar>
 #include <string>
 
+#include "app/extractor.h"
 #include "app/organizer.h"
 #include "app/video_tools.h"
 #include "core/format.h"
@@ -153,6 +154,12 @@ int wmain(int argc, wchar_t** argv) {
     const char decimal = i18n::decimalSeparator();
 
     if (argc >= 3 && std::wstring(argv[1]) == L"--preparar-videos") return prepareVideoTools(argv[2]);
+    if (argc >= 3 && std::wstring(argv[1]) == L"--extrator") {
+        // Diagnóstico: qual programa extrairia um arquivo com esta extensão.
+        const app::Extractor extractor = app::findExtractor(argv[2]);
+        std::printf("%s\n", dm::toUtf8(extractor.name + L" " + extractor.exe).c_str());
+        return extractor.kind == app::Extractor::Kind::None ? 1 : 0;
+    }
     if (argc >= 4 && std::wstring(argv[1]) == L"--organizar") {
         return organize(argv[2], argv[3], argc >= 5 && std::wstring(argv[4]) == L"--extrair");
     }

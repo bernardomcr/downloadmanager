@@ -58,7 +58,7 @@ app.exe (um único processo)
    - janela anônima fica com o navegador (privacidade).
 5. **Vídeos** ✅ — yt-dlp + ffmpeg baixados pelo próprio app na primeira vez (~200 MB, em `%LOCALAPPDATA%\DownloadManager\tools`), yt-dlp atualizado a cada 7 dias. Link de site conhecido (YouTube, Vimeo, X, Instagram, TikTok...) ou qualquer link colado que abra uma página → janela de vídeo: título, duração, qualidade (melhor / até Np / MP3 / áudio original), legendas pt/en, playlist com caixas de seleção. Na lista: pausar/continuar (o yt-dlp aproveita o que já baixou), fila, limite. Streams HLS/DASH com 8 pedaços em paralelo. Extensão: "Baixar o vídeo desta página" (leva os cookies: evita o "confirme que não é um robô" do YouTube) e streams no popup. DRM: detectado e recusado.
 6. ~~**Torrent**~~ — cancelado (decisão do usuário).
-7. **Regras automáticas** ✅ — aba Regras (ver abaixo): ao concluir, o arquivo vai para a subpasta da primeira regra que servir; extrair (tar do Windows), apagar o compactado, abrir arquivo/pasta. Vale também para o que o navegador baixou sozinho (adotado).
+7. **Regras automáticas** ✅ — aba Regras (ver abaixo): ao concluir, o arquivo vai para a subpasta da primeira regra que servir; extrair (NanaZip/7-Zip/WinRAR do usuário; tar só se não houver), apagar o compactado, abrir arquivo/pasta. O que o navegador baixa sozinho não é movido depois: no Chrome/Edge já é salvo na pasta da regra (ver Fase 9).
 8. **Distribuição** ✅ — ver "Distribuição" abaixo. Pendente do lado do usuário: chaves da Mozilla (segredos no GitHub) para assinar a extensão do Firefox; publicação na loja do Edge/Chrome é manual e opcional.
 
 ## Aba Regras
@@ -125,22 +125,14 @@ Ordem de tentativa, sem o usuário precisar caçar token:
 - Edge: publicação não listada (grátis).
 - Chrome: pacote pronto para publicar, publicação opcional (taxa única de US$ 5). Até lá, instala em modo desenvolvedor.
 
-## Fase 9 (pedidos de 08/10/2026) — a fazer, testando no Windows de verdade
-Daqui em diante o trabalho é numa sessão local do Claude Code no PC do usuário (Windows), não mais no Wine: compilar com MSVC, abrir o app e a extensão no Firefox de verdade.
-
-1. **Interface mais "premium", sem perder o minimalismo**
-   - Fundo levemente cinza em vez de branco puro (algo como `#F5F6F8`, com listas/cartões um tom mais claro), mantendo contraste e o modo claro do Windows.
-   - Barra de progresso mais bonita e detalhada: cantos arredondados, preenchimento com leve gradiente, cor por estado (baixando / pausado / erro / concluído), e dentro ou ao lado dela o essencial (porcentagem; opcionalmente as partes das conexões em paralelo, discretas).
-   - Mudança discreta: mesmas abas, mesmo layout, sem animações chamativas. Medidas em pixels lógicos com `scale()`.
-2. **Diálogo de download (o que abre quando o navegador manda um download)**
-   - Não mostrar o link cru em destaque: quando o pedido vem do navegador, o link fica escondido (no máximo uma linha curta com o nome do site, ou um "Mostrar link"). No "Adicionar" manual o campo de link continua, claro.
-   - Mostrar desde o início onde vai ser salvo DE VERDADE: se uma regra vai mandar para uma subpasta (Downloads\Vídeos, Downloads\Compactados...), o campo "Salvar em" já mostra essa subpasta (usar `dm::matchRule` com o nome e a URL ao abrir o diálogo; atualizar quando o nome mudar). Se o usuário trocar a pasta, a escolha dele vale e a regra não move depois.
-3. **Integração com debrid (Real-Debrid primeiro; Torbox e outros depois)**
-   - Configurações: conectar a conta com o token da API do Real-Debrid (guardado com DPAPI, como os cabeçalhos), mostrar a conta/validade, botão de testar e desconectar.
-   - Entrada: link `magnet:` colado no Adicionar, arquivo `.torrent` (abrir/arrastar/associação opcional) e magnet/torrent capturado pela extensão (hoje só http/https passa em `browser_request.cpp`: liberar `magnet:` com validação).
-   - Fluxo: envia o magnet/torrent para o Real-Debrid (`/torrents/addMagnet` ou `/torrents/addTorrent`), seleciona os arquivos (todos por padrão, ou deixar escolher quando forem vários), acompanha o progresso do RD na lista ("No Real-Debrid: 45%"), e quando estiver pronto pega os links (`/unrestrict/link`) e baixa como download direto normal, com as regras de organização valendo.
-   - Erros traduzidos (token inválido, torrent sem seeds no RD, limite da conta). Núcleo portátil e testado em `src/core/` (montar pedidos e ler as respostas JSON), rede em `src/engine/`.
-   - Fora do escopo: conteúdo com DRM continua não baixável.
+## Fase 9 (pedidos de 08/10/2026) ✅ — feita no Windows de verdade (MSVC local)
+1. **Visual** ✅ — o usuário preferiu fundo branco e abas/botão Adicionar nativos (testou abas desenhadas e não gostou). Ficou: lista toda desenhada pelo app (linhas altas, ícone do tipo de arquivo, barra fina arredondada com gradiente e cor por estado: azul baixando, roxo no Real-Debrid, cinza pausado/fila, vermelho erro; porcentagem ao lado), cabeçalho da lista discreto, rodapé com "N baixando · N na fila" e a velocidade total, barra de título branca no Windows 11, Configurações com rolagem.
+2. **Diálogo de download** ✅ — vindo do navegador: ícone + nome do arquivo em destaque, "de site.com", link escondido ("Mostrar link"). Manual: link (http/https/magnet) + "Abrir .torrent…". Nos dois, "Salvar em" já mostra a pasta da regra ("Pela regra Compactados"); o download vai direto para lá. Se o usuário trocar a pasta, a escolha dele vale.
+3. **Real-Debrid** ✅ — token em Configurações (DPAPI, conta e validade mostradas, Desconectar). Entrada: magnet no Adicionar, .torrent (botão ou arrastar para a janela), magnet pelo clique direito da extensão. Todos os arquivos do torrent são selecionados; a lista mostra a etapa no Real-Debrid e, pronto, cada arquivo vira download direto com as regras valendo. Testado com a conta do usuário. Pendente: escolher arquivos quando o torrent tem vários; Torbox e outros.
+4. **Navegador sem mover arquivos** ✅ — mover depois de pronto quebrava o "Mostrar na pasta" do navegador. Agora: Chrome/Edge salvam já na subpasta da regra (`onDeterminingFilename` + `route` no dm-host); Firefox (sem essa API) fica onde salvou. O app só lista em Concluídos. Downloads do claude.ai e afins (blob:) só o navegador consegue baixar.
+5. **Extração pelo programa do usuário** ✅ — NanaZip, 7-Zip ou WinRAR (o associado à extensão primeiro), com a janela de progresso deles; `tar` só se não houver nenhum.
+6. **Rede** ✅ — fallback rápido para IPv4 no WinHTTP (a rede do usuário tem IPv6 quebrado; conexões ficavam esperando estourar o tempo).
 
 ## Em aberto
-- Fase 9 acima.
+- Escolher os arquivos de um torrent com vários arquivos; outros serviços de debrid (Torbox).
+- Release com a extensão nova (o `route` do Chrome/Edge e o magnet no clique direito precisam da extensão e do dm-host novos).

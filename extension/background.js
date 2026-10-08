@@ -6,8 +6,11 @@
 //     confirma que começou a receber dados o download do navegador é cancelado.
 //  2. Se o app não consegue (link de uso único, app fechado...), o navegador continua. Formulários (POST)
 //     ficam direto com o navegador.
-//  3. Todo download que terminar pelo navegador é "adotado": o app move o arquivo para a pasta
-//     organizada e mostra em Concluídos.
+//  3. O que o navegador baixa sozinho (blob:, data:, formulários, ou quando o app não consegue) nunca é
+//     movido depois de pronto (isso quebraria o "Mostrar na pasta" do navegador):
+//     - Chrome/Edge: antes de salvar, a ponte diz a subpasta da regra e o navegador já grava lá;
+//     - Firefox (não tem como escolher a pasta antes): fica onde o navegador salvou.
+//     Quando termina, o app só lista o arquivo em Concluídos.
 "use strict";
 
 if (typeof importScripts === "function" && typeof DMLib === "undefined") importScripts("lib.js");
@@ -118,6 +121,35 @@ api.downloads.onChanged.addListener(async (delta) => {
   const [item] = await api.downloads.search({ id: delta.id });
   await adopt(item);
 });
+
+// --- Chrome/Edge: o navegador já salva na subpasta da regra ---
+
+if (api.downloads.onDeterminingFilename) {
+  api.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    if (item.incognito || item.byExtensionId) return;  // sem resposta: o navegador decide sozinho
+    (async () => {
+      let name = "";
+      try {
+        if (await isCaptureEnabled()) {
+          const reply = await sendNative({
+            type: "route",
+            url: item.finalUrl || item.url || "",
+            fileName: DMLib.basename(item.filename),
+            size: item.fileSize > 0 ? item.fileSize : item.totalBytes > 0 ? item.totalBytes : -1,
+          });
+          name = DMLib.routedFileName(item.filename, reply && reply.ok ? reply.folder : "");
+        }
+      } catch {}
+      if (name) {
+        await logEvent(`pasta da regra para ${item.id}: ${name}`);
+        suggest({ filename: name, conflictAction: "uniquify" });
+      } else {
+        suggest();
+      }
+    })();
+    return true;  // resposta assíncrona
+  });
+}
 
 // --- Captura ---
 
